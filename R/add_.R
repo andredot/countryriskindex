@@ -7,34 +7,41 @@
 #' The score is based on four conceptual components:
 #' \itemize{
 #'   \item \strong{Socioeconomic vulnerability}: \code{soc_econ_vulnerability},
-#'   inverted on a 0–10 scale.
+#'   inverted on a 0-10 scale.
 #'   \item \strong{Infrastructure}: Computed as the geometric mean of:
 #'     \itemize{
-#'       \item \code{comms} — average of \code{connectivity}, \code{electricity},
+#'       \item \code{comms} - average of \code{connectivity}, \code{electricity},
 #'        \code{internet}, \code{mobile}
-#'       \item \code{physical} — average of \code{road_density},
+#'       \item \code{physical} - average of \code{road_density},
 #'        \code{improved_water}, \code{improved_sanitation}
 #'     }
-#'     Both components are inverted on a 0–10 scale before aggregation.
+#'     Both components are inverted on a 0-10 scale before aggregation.
 #'   \item \strong{Vulnerable groups}: Geometric mean of \code{uprooted} and
-#'   \code{food_sec}, inverted on a 0–10 scale.
-#'   \item \strong{Education}: \code{adult_literacy}, inverted on a 0–10 scale.
+#'   \code{food_sec}, inverted on a 0-10 scale.
+#'   \item \strong{Education}: \code{adult_literacy}, inverted on a 0-10 scale.
 #' }
 #'
-#' The final vulnerability score is the normalized geometric mean of the four
-#' components.
+#' The final vulnerability score is the normalised geometric mean of the four
+#' components. Normalisation uses frozen reference bounds when `reference` is
+#' supplied, so that a country's score does not move merely because other
+#' countries moved (see [normalise_quantiles()]).
 #'
 #' @param df A data frame with the required columns for vulnerability
-#' computation.
+#'   computation.
+#' @param reference Optional reference quantile table from
+#'   [compute_reference_quantiles()]. When `NULL`, bounds are computed from the
+#'   current run and scores are *not* comparable across releases.
+#' @param min_n Minimum number of non-missing sub-components required before a
+#'   score is produced; below this the score is `NA`.
 #'
 #' @return The input data frame with added columns:
 #' \itemize{
 #'   \item \code{vulnerable_groups}, \code{comms}, \code{physical},
 #'   \code{infrastructure}
-#'   \item \code{vulnerability_score} — normalized composite score.
+#'   \item \code{vulnerability_score} - normalised composite score.
 #' }
 #' @export
-add_vulnerability_score <- function(df) {
+add_vulnerability_score <- function(df, reference = NULL, min_n = 3) {
 
   df$vulnerable_groups <- rowMeans(
     df[, c("uprooted", "food_sec")],
@@ -51,72 +58,111 @@ add_vulnerability_score <- function(df) {
     na.rm = TRUE
   )
 
-  df$infrastructure <- apply(
-    df[, c("comms", "physical")] |>
-      dplyr::mutate(dplyr::across(dplyr::everything(), invert_0_10)),
-    1,
-    geometric_mean
+  inverted_infra <- data.frame(
+    comms = invert_0_10(df$comms),
+    physical = invert_0_10(df$physical)
+  )
+  df$infrastructure <- row_geometric_mean(inverted_infra,
+                                          c("comms", "physical"),
+                                          min_n = 1)
+
+  # Final vulnerability components, all oriented so that higher = better
+  raw_components <- data.frame(
+    infrastructure = df$infrastructure,
+    adult_literacy = invert_0_10(df$adult_literacy),
+    vulnerable_groups = invert_0_10(df$vulnerable_groups),
+    soc_econ_vulnerability = invert_0_10(df$soc_econ_vulnerability)
   )
 
-  # Final vulnerability components
-  raw_components <- df[, c("infrastructure",
-                           "adult_literacy",
-                           "vulnerable_groups",
-                           "soc_econ_vulnerability")]
-
-  # Apply inversion only to columns not already inverted
-  raw_components$adult_literacy <- invert_0_10(raw_components$adult_literacy)
-  raw_components$soc_econ_vulnerability <- invert_0_10(
-    raw_components$soc_econ_vulnerability)
-  raw_components$vulnerable_groups <- invert_0_10(
-    raw_components$vulnerable_groups)
-
-  raw_geom <- apply(raw_components, 1, geometric_mean)
+  raw_geom <- row_geometric_mean(raw_components, names(raw_components),
+                                 min_n = min_n)
   inverted_geom <- invert_0_10(raw_geom)
-  df$vulnerability_score <- normalise_quantiles(inverted_geom)
 
-  return(df)
+  bounds <- get_reference_bounds(reference, "vulnerability_raw")
+  df$vulnerability_raw <- inverted_geom
+  df$vulnerability_score <- normalise_quantiles(
+    inverted_geom,
+    q01 = bounds$q01,
+    q99 = bounds$q99
+  )
+
+  df
 }
 
 #' Compute Hazard Score from GBD Rates
 #'
-#' Calculates a normalized hazard score based on the "All causes" DALY rate from
-#'  GBD data.
-#' The score is computed by dividing each value by the maximum observed value.
+#' Calculates a normalised hazard score from the "All causes" DALY rate.
+#'
+#' v4.0 divided by the observed maximum, which made every country's score
+#' hostage to a single extreme country and compressed the usable range to
+#' roughly `[0.27, 1]`. v4.1 uses the same frozen quantile normalisation as the
+#' vulnerability and capacity components, so all three are on a common footing
+#' and the score is stable across releases.
 #'
 #' @param df A data frame containing a column named \code{"All causes"}.
+#' @param reference Optional reference quantile table from
+#'   [compute_reference_quantiles()].
+#' @param method Either `"quantile"` (default) or `"max"` (deprecated v4.0
+#'   behaviour, retained for comparison only).
 #'
-#' @return The input data frame with an added column \code{hazard_score}.
+#' @return The input data frame with added columns \code{hazard_raw} and
+#'   \code{hazard_score}.
 #' @export
-add_hazard_score <- function(df) {
-  df$hazard_score <- df$"All causes"/max(df$"All causes", na.rm = TRUE)
-  return(df)
-}
+add_hazard_score <- function(df, reference = NULL,
+                             method = c("quantile", "max")) {
+  method <- match.arg(method)
+  df$hazard_raw <- df[["All causes"]]
 
+  if (method == "max") {
+    warning(
+      "add_hazard_score(method = 'max') reproduces the deprecated v4.0 ",
+      "normalisation, which is not comparable across releases.",
+      call. = FALSE
+    )
+    df$hazard_score <- df$hazard_raw / max(df$hazard_raw, na.rm = TRUE)
+    return(df)
+  }
+
+  bounds <- get_reference_bounds(reference, "hazard_raw")
+  df$hazard_score <- normalise_quantiles(df$hazard_raw,
+                                         q01 = bounds$q01,
+                                         q99 = bounds$q99)
+  df
+}
 
 #' Compute Health System Capacity Score
 #'
-#' Calculates a composite health system capacity score using four components:
+#' Calculates a composite health system capacity score using four components
+#' aligned to the HSPA framework:
 #' \itemize{
-#'   \item \strong{Governance}: Inverted \code{gov_effectivess} (scaled from
-#'   0–10 to 0–100).
+#'   \item \strong{Governance}: Inverted \code{gov_effectivess} (0-10 rescaled
+#'   to 0-100).
 #'   \item \strong{Financing}: Average of \code{uhc_coverage} and inverted
-#'   \code{health_per_capita} (scaled to 0–100).
-#'   \item \strong{Resources}: \code{doctor_density}.
+#'   \code{health_per_capita} (rescaled to 0-100).
+#'   \item \strong{Resources}: \code{doctor_density}, normalised to 0-100.
 #'   \item \strong{Services}: \code{haqi}.
 #' }
 #'
-#' The final score is the normalized geometric mean of the four components.
+#' In v4.0 `resources` was the raw WHO physicians-per-10,000 figure, spanning
+#' roughly 0.1 to 85 while the other three components spanned 0-100. Inside a
+#' geometric mean the relevant quantity is spread in log space, where the raw
+#' density carried about four times the influence of the other three combined
+#' and countries near zero drove the aggregate on their own. v4.1 normalises it
+#' onto the same 0-100 scale, on a log axis because the distribution is heavily
+#' right-skewed.
 #'
 #' @param df A data frame with the required columns for capacity computation.
+#' @param reference Optional reference quantile table from
+#'   [compute_reference_quantiles()].
+#' @param min_n Minimum number of non-missing sub-components required.
 #'
 #' @return The input data frame with added columns:
 #' \itemize{
 #'   \item \code{governance}, \code{financing}, \code{resources}, \code{services}
-#'   \item \code{capacity_score} — normalized composite score.
+#'   \item \code{capacity_score} - normalised composite score.
 #' }
 #' @export
-add_capacity_score <- function(df) {
+add_capacity_score <- function(df, reference = NULL, min_n = 3) {
   df$governance <- invert_0_100(df$gov_effectivess * 10)
 
   df$financing <- rowMeans(
@@ -126,66 +172,135 @@ add_capacity_score <- function(df) {
     ),
     na.rm = TRUE
   )
-  df$resources <- df$doctor_density
+
+  # Normalise doctor density onto the same 0-100 scale as the other three
+  # components. log1p first: the raw distribution is heavily right-skewed.
+  res_bounds <- get_reference_bounds(reference, "resources_raw")
+  df$resources_raw <- log1p(df$doctor_density)
+  df$resources <- 100 * normalise_quantiles(df$resources_raw,
+                                            q01 = res_bounds$q01,
+                                            q99 = res_bounds$q99)
+
   df$services <- df$haqi
 
-  # Compute geometric mean of raw components
-  raw_components <- df[, c("governance", "financing", "resources", "services")]
-  raw_geometric <- apply(raw_components, 1, geometric_mean)
+  raw_components <- c("governance", "financing", "resources", "services")
+  raw_geometric <- row_geometric_mean(df, raw_components, min_n = min_n)
   inverted_geom <- invert_0_100(raw_geometric)
 
-  # Normalize the final score
-  df$capacity_score <- normalise_quantiles(inverted_geom)
+  bounds <- get_reference_bounds(reference, "capacity_raw")
+  df$capacity_raw <- inverted_geom
+  df$capacity_score <- normalise_quantiles(inverted_geom,
+                                           q01 = bounds$q01,
+                                           q99 = bounds$q99)
 
-  return(df)
+  df
 }
 
 #' Compute Overall Risk Score
 #'
-#' Calculates the overall risk score as the geometric mean of:
-#' \itemize{
-#'   \item \code{hazard_score}
-#'   \item \code{vulnerability_score}
-#'   \item \code{capacity_score}
-#' }
-#'
-#' This score reflects the combined impact of hazard, vulnerability, and system
-#'  capacity.
+#' Calculates the overall (pre-crisis) risk score as the geometric mean of
+#' \code{hazard_score}, \code{vulnerability_score} and \code{capacity_score}.
 #'
 #' @param df A data frame containing the three component scores.
+#' @param min_n Minimum number of non-missing components required. Defaults to
+#'   3, i.e. all three, so that a country missing an entire dimension is
+#'   reported as `NA` rather than scored on the remainder.
 #'
 #' @return The input data frame with an added column \code{overall_risk}.
 #' @export
-add_overall_risk <- function(df) {
-  df$overall_risk <- apply(
-    df[, c("hazard_score", "vulnerability_score", "capacity_score")],
-    1,
-    geometric_mean
+add_overall_risk <- function(df, min_n = 3) {
+  df$overall_risk <- row_geometric_mean(
+    df,
+    c("hazard_score", "vulnerability_score", "capacity_score"),
+    min_n = min_n
   )
-
-  return(df)
+  df
 }
 
-#' Compute Severity-Adjusted Risk Score
+#' Indicator sets underlying each risk component
 #'
-#' Adjusts the overall risk score using the INFORM Severity Index.
-#' The adjustment formula is:
-#' \deqn{overall\_risk + ((severity\_index - 1) / 4) * (1 - overall\_risk)}
-#' This increases the risk score proportionally to the severity index
-#' (range 1–5).
+#' Declares which input indicators feed each component. Used by
+#' [add_data_completeness()] to count how much of the evidence base is actually
+#' present for a given country.
 #'
-#' @param df A data frame with columns \code{overall_risk} and
-#' \code{severity_index}.
-#'
-#' @return The input data frame with an added column
-#'  \code{severity_adjusted_risk}.
+#' @return A named list of character vectors.
 #' @export
-add_severity <- function(df) {
-  df$severity_adjusted_risk <- update_score(
-    base_value = df$overall_risk,
-    multiplier = df$severity_index
+default_indicator_sets <- function() {
+  list(
+    hazard = c("All causes"),
+    vulnerability = c("soc_econ_vulnerability", "connectivity", "electricity",
+                      "internet", "mobile", "road_density", "improved_water",
+                      "improved_sanitation", "uprooted", "food_sec",
+                      "adult_literacy"),
+    capacity = c("gov_effectivess", "uhc_coverage", "health_per_capita",
+                 "doctor_density", "haqi")
   )
-  return(df)
+}
+
+#' Flag countries with insufficient underlying data
+#'
+#' Counts missing input indicators per component and flags countries whose score
+#' rests on too thin an evidence base.
+#'
+#' This matters because data sparsity correlates with fragility: without an
+#' explicit flag, the countries most likely to be scored from a partial variable
+#' set are exactly the high-risk ones, and their scores are silently not
+#' comparable with those of well-measured countries.
+#'
+#' @param df A data frame of merged indicators.
+#' @param indicator_sets Named list of indicator names per component. Defaults
+#'   to [default_indicator_sets()].
+#' @param max_missing Maximum number of missing indicators tolerated before a
+#'   country is flagged as low confidence.
+#' @param max_missing_component Maximum proportion of a single component's
+#'   indicators that may be missing before the country is flagged, regardless of
+#'   the overall count.
+#'
+#' @return The input data frame with added columns `n_missing_<component>`,
+#'   `n_missing_total`, `data_completeness` (proportion present in `[0, 1]`) and
+#'   `low_confidence` (logical).
+#' @export
+add_data_completeness <- function(df,
+                                  indicator_sets = default_indicator_sets(),
+                                  max_missing = 3,
+                                  max_missing_component = 0.5) {
+
+  n_total <- 0
+  n_missing_total <- rep(0, nrow(df))
+  component_breach <- rep(FALSE, nrow(df))
+
+  for (comp in names(indicator_sets)) {
+    cols <- intersect(indicator_sets[[comp]], names(df))
+    absent <- setdiff(indicator_sets[[comp]], names(df))
+    if (length(absent) > 0) {
+      warning(
+        "add_data_completeness(): indicators not found in data and treated ",
+        "as missing for every country: ", paste(absent, collapse = ", "),
+        call. = FALSE
+      )
+    }
+
+    n_comp <- length(indicator_sets[[comp]])
+    n_total <- n_total + n_comp
+
+    if (length(cols) > 0) {
+      n_miss <- rowSums(is.na(df[, cols, drop = FALSE]))
+    } else {
+      n_miss <- rep(0, nrow(df))
+    }
+    n_miss <- n_miss + length(absent)
+
+    df[[paste0("n_missing_", comp)]] <- n_miss
+    n_missing_total <- n_missing_total + n_miss
+    component_breach <- component_breach | (n_miss / n_comp >
+                                              max_missing_component)
+  }
+
+  df$n_missing_total <- n_missing_total
+  df$data_completeness <- 1 - (n_missing_total / n_total)
+  df$low_confidence <- (n_missing_total > max_missing) | component_breach
+
+  df
 }
 
 #' Add localised risk to country-level risk data

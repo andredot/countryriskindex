@@ -1,6 +1,6 @@
 Package: countryriskindex
 Title: Country Health Risk Calculation
-Version: 0.1.1
+Version: 0.2.0
 Authors@R: 
     person("Andrea", "Pedot", , "andrea.pedot@unimi.it", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0001-7050-1378"))

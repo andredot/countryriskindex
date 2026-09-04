@@ -540,52 +540,6 @@ create_lollipop <- function(df, country_col, x_col, y_col, title,
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
 }
 
-#' Lollipop Plot Comparing Risk Score with CRPI Index
-#'
-#' Joins a risk score dataset with a CRPI dataset and creates a lollipop plot
-#' comparing the specified risk score column with the CRPI index.
-#'
-#' @param risk_score A data frame with ISO_A3, country, and a risk score column.
-#' @param crpi A data frame with iso_a3 and CRPI index columns.
-#' @param x_col Name of the risk score column in `risk_score`.
-#' @param y_col Name of the CRPI index column in `crpi`.
-#' @param sort_by_difference Logical. Whether to sort by absolute difference.
-#' @param color_x Color for the x_col points.
-#' @param color_y Color for the y_col points.
-#'
-#' @return A ggplot2 lollipop plot.
-#' @export
-create_lollipop_plot_comp <- function(risk_score, crpi,
-                                      x_col = "overall_risk",
-                                      y_col = "Index",
-                                      sort_by_difference = FALSE,
-                                      color_x = "lightblue",
-                                      color_y = "lightpink") {
-
-  crpi <- crpi |>
-    dplyr::mutate(Index = Index / 100,
-                  Index_adjusted = Index_adjusted / 100)
-
-  df <- dplyr::inner_join(
-    dplyr::select(risk_score, ISO_A3, country, dplyr::all_of(x_col)),
-    crpi,
-    by = c("ISO_A3" = "iso_a3")
-  )
-
-  df <- dplyr::select(df, ISO_A3, country,
-                      dplyr::all_of(x_col), dplyr::all_of(y_col))
-
-  create_lollipop(df,
-                  country_col = "country",
-                  x_col = x_col,
-                  y_col = y_col,
-                  title = paste("Difference between", x_col, "and", y_col),
-                  sort_by_difference = sort_by_difference,
-                  color_x = color_x,
-                  color_y = color_y)
-}
-
-
 #' Lollipop Plot Comparing Overall Risk and Severity-Adjusted Risk
 #'
 #' Creates a lollipop plot comparing overall risk and severity-adjusted risk
@@ -639,7 +593,8 @@ create_correlation_matrix_with_groups <- function(df) {
     "infrastructure", "adult_literacy", "vulnerable_groups",
     "soc_econ_vulnerability",
     "capacity_score", "governance", "financing", "resources", "services",
-    "severity_index", "crisis_impact", "people_conditions", "crisis_complexity"
+    "severity_index", "crisis_impact", "people_conditions", "crisis_complexity",
+    "severity_adjusted_risk_delta"
   )
 
   group_list <- list(
@@ -654,7 +609,7 @@ create_correlation_matrix_with_groups <- function(df) {
     Capacity = c("capacity_score", "governance", "financing", "resources",
                  "services"),
     Crisis = c("severity_index", "crisis_impact", "people_conditions",
-               "crisis_complexity")
+               "crisis_complexity", "severity_adjusted_risk_delta")
   )
 
   group_colors <- c(
@@ -663,6 +618,16 @@ create_correlation_matrix_with_groups <- function(df) {
     Capacity = "darkgreen",
     Crisis = "purple"
   )
+
+  # Not every diagnostic exists on every run; drop absent ones rather than
+  # failing the whole report.
+  absent <- setdiff(variables, names(df))
+  if (length(absent) > 0) {
+    warning("create_correlation_matrix_with_groups(): skipping absent ",
+            "variables: ", paste(absent, collapse = ", "), call. = FALSE)
+    variables <- intersect(variables, names(df))
+    group_list <- lapply(group_list, function(g) intersect(g, variables))
+  }
 
   corr_matrix <- df |>
     dplyr::select(dplyr::all_of(variables)) |>
@@ -1059,3 +1024,127 @@ create_disease_scatter <- function(data) {
     )
 }
 
+
+
+#' Interactive Map of Data Completeness
+#'
+#' Displays the proportion of underlying indicators actually present for each
+#' country. Published alongside the risk map so that a confident-looking score
+#' built on a thin evidence base is visible rather than implicit.
+#'
+#' @param db A data frame with a `data_completeness` column and ISO_A3-coded
+#'   country identifiers.
+#'
+#' @return A leaflet map object.
+#' @export
+createmap_completeness <- function(db = NULL) {
+  createmap(
+    data = db,
+    value_column = "data_completeness",
+    palette = "RdYlGn",
+    legend_title = "Share of indicators present"
+  )
+}
+
+#' Bar Chart of the Severity Adjustment by Country
+#'
+#' Shows, for the most-affected countries, the unadjusted risk and the uplift
+#' contributed by the crisis modifier, so the size of the adjustment is legible
+#' rather than buried inside the headline score.
+#'
+#' @param db A data frame produced by `add_severity()`.
+#' @param top_n Number of countries to display.
+#'
+#' @return A ggplot2 object.
+#' @export
+createimg_severity_uplift <- function(db = NULL, top_n = 30) {
+  d <- db[!is.na(db$severity_uplift) & db$severity_uplift > 0, , drop = FALSE]
+  d <- d[order(-d$severity_uplift), , drop = FALSE]
+  d <- utils::head(d, top_n)
+
+  if (nrow(d) == 0) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate("text", x = 0, y = 0,
+                          label = "No country received a severity adjustment.",
+                          size = 5, colour = "grey30") +
+        ggplot2::theme_void()
+    )
+  }
+
+  long <- tidyr::pivot_longer(
+    d[, c("country", "overall_risk", "severity_uplift")],
+    cols = c("overall_risk", "severity_uplift"),
+    names_to = "part", values_to = "value"
+  )
+  long$part <- factor(long$part,
+                      levels = c("overall_risk", "severity_uplift"),
+                      labels = c("Structural risk", "Crisis uplift"))
+  long$country <- factor(long$country, levels = rev(d$country))
+
+  ggplot2::ggplot(long, ggplot2::aes(x = .data$value, y = .data$country,
+                                     fill = .data$part)) +
+    ggplot2::geom_col() +
+    ggplot2::scale_fill_manual(
+      values = c("Structural risk" = "grey60", "Crisis uplift" = "firebrick")
+    ) +
+    ggplot2::labs(
+      title = "How much of the score is the crisis modifier?",
+      subtitle = paste0("Top ", nrow(d),
+                        " countries by severity uplift"),
+      x = "Severity-adjusted risk", y = NULL, fill = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(legend.position = "top")
+}
+
+#' Plot the severity calibration table
+#'
+#' Visualises how the crisis modifier behaves across baseline risks and severity
+#' levels under v4.1 compared with the deprecated v4.0 formula. Included in the
+#' report so that readers can see the size of the lever rather than take it on
+#' trust.
+#'
+#' @param calibration A data frame from `severity_calibration_table()`.
+#' @param n_drivers Driver count to display.
+#'
+#' @return A ggplot2 object.
+#' @export
+create_severity_calibration_plot <- function(calibration, n_drivers = 2) {
+  d <- calibration[calibration$n_drivers == n_drivers, , drop = FALSE]
+
+  long <- tidyr::pivot_longer(
+    d[, c("baseline", "severity", "risk_v4_1", "risk_v4_0")],
+    cols = c("risk_v4_1", "risk_v4_0"),
+    names_to = "method", values_to = "risk"
+  )
+  long$method <- factor(long$method,
+                        levels = c("risk_v4_0", "risk_v4_1"),
+                        labels = c("v4.0 (convex pull)",
+                                   "v4.1 (driver-routed log-odds)"))
+  long$baseline_lab <- paste0("Baseline risk = ",
+                              sprintf("%.2f", long$baseline))
+
+  ggplot2::ggplot(long, ggplot2::aes(x = .data$severity, y = .data$risk,
+                                     colour = .data$method)) +
+    ggplot2::geom_line(linewidth = 0.9) +
+    ggplot2::geom_point(size = 1.8) +
+    ggplot2::geom_hline(yintercept = 1, linetype = "dotted",
+                        colour = "grey50") +
+    ggplot2::facet_wrap(~ .data$baseline_lab) +
+    ggplot2::scale_colour_manual(
+      values = c("v4.0 (convex pull)" = "firebrick",
+                 "v4.1 (driver-routed log-odds)" = "steelblue")
+    ) +
+    ggplot2::coord_cartesian(ylim = c(0, 1.02)) +
+    ggplot2::labs(
+      title = "Effect of the crisis modifier on the risk score",
+      subtitle = paste0(
+        "At ", n_drivers, " active drivers per channel. v4.0 reaches 1.0 at ",
+        "severity 5 regardless of the structural score."
+      ),
+      x = "INFORM Severity index", y = "Adjusted risk", colour = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(legend.position = "top")
+}

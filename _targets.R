@@ -97,43 +97,54 @@ list(
   tar_target(map_cap_score, createmap_cap_score(risk_score)),
   tar_target(map_vul_score, createmap_vul_score(risk_score)),
 
-  # Former risk score
-  tar_target(crpi1, get_input_data_path("CRPI/Country Risk Profile Index X3.12.1.xlsx") |>
-               import_crpi_excel()),
-  tar_target(crpi2, get_input_data_path("CRPI/Country Risk Profile Index X3.12.2.xlsx") |>
-               import_crpi_excel()),
-  tar_target(crpi, preprocess_crpi(crpi1, crpi2)),
-  tar_target(fig_lolliplot1, create_lollipop_plot_comp(risk_score, crpi)),
-  tar_target(fig_lolliplot2, create_lollipop_plot_comp(risk_score, crpi,
-                                                   sort_by_difference = TRUE)),
-  tar_target(fig_lolliplot3, create_lollipop_plot_shift(risk_score)),
-  tar_target(fig_lolliplot4, create_lollipop_plot_comp(risk_score, crpi,
-                                                       x_col = "severity_adjusted_risk",
-                                                       y_col = "Index_adjusted",
-                                                       color_x = "deepskyblue",
-                                                       color_y = "darkblue")),
-  tar_target(fig_lolliplot5, create_lollipop_plot_comp(risk_score, crpi,
-                                                       sort_by_difference = TRUE,
-                                                       x_col = "severity_adjusted_risk",
-                                                       y_col = "Index_adjusted",
-                                                       color_x = "deepskyblue",
-                                                       color_y = "darkblue")),
-
-
-
   # Risk making
   tar_target(merged_indicators, merge_health_datasets(gbd_rates,
                                                       haq_index,
                                                       inform_cap,
                                                       who_indicators,
                                                       inform_severity)),
+  # Frozen 2025 reference distribution. Normalisation bounds are read from this
+  # file rather than recomputed each run, so a country's score does not move
+  # merely because other countries moved. Regenerate ONLY when deliberately
+  # rebasing the index: see dev/regenerate_reference_quantiles.R.
+  # After regenerating the reference, run
+  #   targets::tar_invalidate(reference_quantiles)
+  # to force the downstream scores to rebuild.
+  tar_target(reference_quantiles, read_reference_quantiles()),
+
   tar_target(risk_score, merged_indicators |>
-               add_hazard_score() |>
-               add_vulnerability_score() |>
-               add_capacity_score() |>
+               add_data_completeness() |>
+               add_hazard_score(reference = reference_quantiles) |>
+               add_vulnerability_score(reference = reference_quantiles) |>
+               add_capacity_score(reference = reference_quantiles) |>
                add_overall_risk() |>
-               add_severity()
+               add_severity(cm_data = cm_data)
              ),
+
+  # Severity diagnostics: what the crisis modifier actually did, and why
+  tar_target(severity_calibration, severity_calibration_table()),
+  tar_target(fig_severity_calibration,
+             create_severity_calibration_plot(severity_calibration)),
+  tar_target(fig_severity_uplift, createimg_severity_uplift(risk_score)),
+  tar_target(severity_effect_table, summarise_severity_effect(risk_score)),
+
+  # Data completeness
+  tar_target(map_completeness, createmap_completeness(risk_score)),
+
+  # Validation: correlation (are we measuring similar or different things?)
+  # and PCA (how many independent things are we actually measuring?)
+  tar_target(pca_validation, run_pca_validation(risk_score)),
+  tar_target(pca_dimensionality, summarise_dimensionality(pca_validation)),
+  tar_target(fig_pca_scree, create_pca_scree(pca_validation)),
+  tar_target(fig_pca_loadings, create_pca_loadings(pca_validation)),
+  tar_target(fig_pca_biplot, create_pca_biplot(pca_validation)),
+
+  # Run-to-run comparison, replacing the retired CRPI benchmark
+  tar_target(previous_snapshot, load_previous_snapshot()),
+  tar_target(run_comparison, compare_runs(risk_score, previous_snapshot)),
+  tar_target(fig_run_comparison, create_run_comparison_plot(run_comparison)),
+  tar_target(current_snapshot, save_run_snapshot(risk_score),
+             format = "file"),
   tar_target(radar_data, extract_radar_data(risk_score)),
   tar_target(corrected_radar_data, update_risk_with_cm(cm_data, risk_score, radar_data)),
   tar_target(map_risk_score, createmap_risk_score(risk_score)),
@@ -147,6 +158,7 @@ list(
                                          )),
   tar_target(fig_risk_bars, createimg_risk_bars(risk_score)),
   tar_target(fig_risk_hist, createimg_risk_hist(risk_score)),
+  tar_target(fig_risk_shift, create_lollipop_plot_shift(risk_score)),
   tar_target(corplot, create_correlation_matrix_with_groups(risk_score)),
 
   # Real-time localisation information

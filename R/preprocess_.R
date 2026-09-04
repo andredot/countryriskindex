@@ -208,19 +208,33 @@ preprocess_inform <- function(db_risk = NULL,
     )
 
   db_lcc <- db_lcc |>
-    dplyr::slice(-1, -2) |>
-    dplyr::transmute(
-      iso3 = `...2`,
-      adult_literacy = as.double(`Adult literacy rate`),                # 47
-      electricity = as.double(`Access to electricity`),                 # 44
-      internet = as.double(`Internet users`),                           # 45
-      mobile = as.double(`Mobile cellular subscriptions`),              # 46
-      road_density = as.double(`Road density...16`),                    # 48
-      improved_water = as.double(`Drinking water`),                     # 49
-      improved_sanitation = as.double(`Sanitation`),                    # 50
-      health_per_capita = as.double(
-        `per capita public and private expenditure on health care`)     # 52
-    )
+    dplyr::slice(-1, -2)
+
+  # All of these are INFORM 0-10 component scores (higher = worse), not the raw
+  # underlying indicators. pick_column() asserts that, so a workbook layout
+  # change fails at import instead of silently mixing scales.
+  lcc_range <- c(0, 10)
+  db_lcc <- tibble::tibble(
+    iso3                = db_lcc[["...2"]],
+    adult_literacy      = pick_column(db_lcc, "Adult literacy rate",
+                                      lcc_range),                       # 47
+    electricity         = pick_column(db_lcc, "Access to electricity",
+                                      lcc_range),                       # 44
+    internet            = pick_column(db_lcc, "Internet users",
+                                      lcc_range),                       # 45
+    mobile              = pick_column(db_lcc, "Mobile cellular subscriptions",
+                                      lcc_range),                       # 46
+    road_density        = pick_column(db_lcc, "Road density",
+                                      lcc_range),                       # 48
+    improved_water      = pick_column(db_lcc, "Drinking water",
+                                      lcc_range),                       # 49
+    improved_sanitation = pick_column(db_lcc, "Sanitation",
+                                      lcc_range),                       # 50
+    health_per_capita   = pick_column(
+      db_lcc,
+      "per capita public and private expenditure on health care",
+      lcc_range)                                                        # 52
+  )
 
   dplyr::left_join(db_risk, db_lcc, by = setNames("iso3", "iso3"))
 }
@@ -351,7 +365,7 @@ preprocess_who_data <- function(
 #'  and derived indicators.
 #' @export
 preprocess_severity <- function(df) {
-  df |>
+  out <- df |>
     dplyr::slice(-1) |>
     dplyr::select(where(~ !all(is.na(.)))) |>
     # One-hot encode the DRIVERS column
@@ -372,29 +386,45 @@ preprocess_severity <- function(df) {
     ) |>
     # Compute geometric mean of people_conditions and crisis_impact
     dplyr::mutate(conditions_impact = sqrt(people_conditions * crisis_impact))
+
+  collapse_severity_by_country(out)
 }
 
-#' Preprocess CRPI Datasets
+#' Collapse multiple crises to one row per country
 #'
-#' Joins two CRPI datasets by ISO A3 code and appends the adjusted index.
-#' The function:
-#' \itemize{
-#'   \item Performs an inner join on `iso_a3`.
-#'   \item Renames the `Index` column from the second dataset as `Index_adjusted`.
-#' }
+#' INFORM Severity records one row per *crisis*, and a country may host several.
+#' Left-joining that directly onto the country table duplicates rows silently.
+#' This function reduces to one row per ISO3 code: severity dimensions take the
+#' country's **maximum** (the binding constraint is the worst concurrent
+#' crisis, not their average), and the one-hot driver flags take the union, so
+#' that a country with two crises is credited with the drivers of both.
 #'
-#' @param crpi1 A data frame with CRPI data including `iso_a3` and `Index`.
-#' @param crpi2 A data frame with CRPI data including `iso_a3` and `Index`.
+#' @param df A data frame from [preprocess_severity()], one row per crisis.
 #'
-#' @return A merged data frame with original and adjusted CRPI indices.
+#' @return A data frame with one row per `ISO3`, plus an `n_crises` column.
 #' @export
-preprocess_crpi <- function(crpi1, crpi2) {
-  dplyr::inner_join(
-    crpi1,
-    dplyr::select(crpi2, iso_a3, Index),
-    by = "iso_a3",
-    suffix = c("", "_adjusted")
+collapse_severity_by_country <- function(df) {
+  if (!"ISO3" %in% names(df)) {
+    return(df)
+  }
+
+  driver_cols <- grep("^Driver ", names(df), value = TRUE)
+  numeric_cols <- setdiff(
+    names(df)[vapply(df, is.numeric, logical(1))],
+    driver_cols
   )
+
+  df |>
+    dplyr::group_by(ISO3) |>
+    dplyr::summarise(
+      COUNTRY = dplyr::first(COUNTRY),
+      n_crises = dplyr::n(),
+      dplyr::across(dplyr::all_of(numeric_cols),
+                    ~ if (all(is.na(.x))) NA_real_ else max(.x, na.rm = TRUE)),
+      dplyr::across(dplyr::all_of(driver_cols),
+                    ~ as.numeric(any(.x > 0, na.rm = TRUE))),
+      .groups = "drop"
+    )
 }
 
 #' Preprocess the survey dataset

@@ -2,7 +2,13 @@
 .Rhistory
 .RData
 .Ruserdata
-inst/extdata
+# Ignore extdata CONTENTS (not the directory itself: git will not descend into
+# an excluded directory, so a `!` negation below would never be reached).
+inst/extdata/*
+# The frozen normalisation reference is versioned config, not data.
+# Comparability across releases and machines depends on everyone using the same
+# bounds, so this one file must be tracked.
+!inst/extdata/reference_quantiles_2025.csv
 .Renviron
 countryriskindex.Rcheck/
 countryriskindex*.tar.gz

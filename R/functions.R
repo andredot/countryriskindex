@@ -60,7 +60,11 @@ merge_health_datasets <- function(gbd_rates,
     ) |>
     dplyr::left_join(
       inform_severity |> dplyr::rename(ISO_A3 = ISO3),
-      by = "ISO_A3"
+      by = "ISO_A3",
+      # INFORM Severity can list several crises per country. A many-to-many
+      # join would silently duplicate country rows and corrupt every downstream
+      # aggregate, so fail loudly instead.
+      relationship = "one-to-one"
     ) |>
     dplyr::left_join(
       who_indicators |> dplyr::rename(ISO_A3 = iso_a3),
@@ -222,36 +226,61 @@ update_risk_with_cm <- function(cm_data, risk_score, radar_data) {
   return(radar_corrected)
 }
 
-#' Update a Score Based on Severity Multiplier and Repetition Count
+#' Update a Score Based on a Severity Multiplier and Repetition Count
 #'
-#' Adjusts a base score using a severity multiplier. The adjustment is applied
-#' multiple times, capped at 3 repetitions. Each iteration increases the score
-#' proportionally to the severity.
+#' Adjusts a base score using a 1-5 severity multiplier, applied `times` times:
 #'
-#' @param base_value A numeric vector of base scores.
-#' @param multiplier A numeric vector of severity multipliers.
-#' @param times An integer vector indicating how many times to apply the
-#' adjustment (default is 1, capped at 3).
+#' \deqn{score \leftarrow score + \frac{m - 1}{4}(1 - score)}
+#'
+#' Note that this is a convex pull towards 1: at `m = 5` a single application
+#' returns exactly 1 regardless of the base value. It is retained for the radar
+#' chart, where the intent is a saturating visual emphasis, but it is no longer
+#' used for the headline index - see [add_severity()] and the log-odds
+#' [logit_shift()].
+#'
+#' The v4.0 implementation contained an off-by-one: `times` was decremented
+#' whenever it exceeded 1, so `times = 1` and `times = 2` behaved identically
+#' and `times = 3` and above collapsed to two applications. v4.1 applies the
+#' adjustment exactly `times` times, capped at `max_times`.
+#'
+#' @param base_value A numeric vector of base scores in `[0, 1]`.
+#' @param multiplier A numeric vector of severity multipliers in `[1, 5]`. `NA`
+#'   leaves the score unchanged.
+#' @param times An integer vector giving how many times to apply the adjustment.
+#'   Values below 0 are treated as 0; `NA` is treated as 0.
+#' @param max_times Maximum number of applications (default 3).
 #'
 #' @return A numeric vector of adjusted scores.
 #' @export
 #'
 #' @examples
 #' update_score(base_value = c(0.6, 0.7), multiplier = c(3, NA), times = c(2, 1))
-update_score <- function(base_value, multiplier, times = 1) {
-  times <- ifelse(times >= 3, 3, times)
-  times <- ifelse(times > 1, times - 1, times)
+#' # times is now honoured exactly:
+#' update_score(0.5, 3, times = 1) < update_score(0.5, 3, times = 2)
+update_score <- function(base_value, multiplier, times = 1, max_times = 3) {
+  times <- as.numeric(times)
+  times[is.na(times)] <- 0
+  times <- pmin(pmax(round(times), 0), max_times)
 
-  purrr::pmap_dbl(
-    list(base_value, multiplier, times),
-    function(b, m, t) {
-      score <- b
-      for (i in seq_len(t)) {
-        score <- if (is.na(m)) score else score + ((m - 1) / 4) * (1 - score)
-      }
-      score
+  # Recycled to a common length, then applied element-wise. Base R rather than
+  # purrr::pmap_dbl(): this is on the hot path and needs no dependency.
+  n <- max(length(base_value), length(multiplier), length(times))
+  base_value <- rep_len(base_value, n)
+  multiplier <- rep_len(multiplier, n)
+  times <- rep_len(times, n)
+
+  vapply(seq_len(n), function(i) {
+    b <- base_value[i]
+    m <- multiplier[i]
+    t <- times[i]
+    if (is.na(b)) return(NA_real_)
+    if (is.na(m)) return(as.numeric(b))
+    score <- as.numeric(b)
+    for (k in seq_len(t)) {
+      score <- score + ((m - 1) / 4) * (1 - score)
     }
-  )
+    score
+  }, numeric(1))
 }
 
 #' Process AMI survey responses enforcing monotonic concern by group
