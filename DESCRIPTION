@@ -1,0 +1,71 @@
+Package: countryriskindex
+Title: Country Health Risk Calculation
+Version: 0.1.1
+Authors@R: 
+    person("Andrea", "Pedot", , "andrea.pedot@unimi.it", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0001-7050-1378"))
+Description: countryriskindex is an R package for computing the Country
+    Health Risk Index (CHRI), a composite indicator designed to assess
+    national health risks by integrating multiple dimensions of public
+    health vulnerability.
+License: file LICENSE
+Imports: 
+    dplyr,
+    factoextra,
+    fmsb,
+    fs,
+    ggdendro,
+    ggfortify,
+    ggplot2,
+    ggradar (>= 0.2),
+    ggtext,
+    irr,
+    janitor,
+    leaflet,
+    plotly,
+    purrr,
+    quarto,
+    RColorBrewer,
+    readr,
+    readxl,
+    reshape2,
+    rlang,
+    rnaturalearth,
+    rnaturalearthdata,
+    scales,
+    sf,
+    shiny,
+    skimr,
+    stringi,
+    stringr,
+    tibble,
+    tidyr,
+    tidyselect,
+    viridis
+Suggests: 
+    checkmate,
+    covr,
+    crew,
+    devtools,
+    distill,
+    here,
+    htmltools,
+    knitr,
+    lintr,
+    lubridate,
+    qs,
+    qs2,
+    rstudioapi,
+    spelling,
+    tarchetypes,
+    targets,
+    testthat,
+    usethis,
+    withr
+Remotes: 
+    ricardo-bion/ggradar
+Config/testthat/edition: 3
+Encoding: UTF-8
+Language: en-US
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3

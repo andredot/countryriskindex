@@ -1,0 +1,404 @@
+---
+title: "`r Sys.getenv('PROJ_TITLE')`"
+subtitle: "4.00"
+description: "`r Sys.getenv('PROJ_DESCRIPTION')`"
+author:
+  - name: Andrea Pedot
+    affiliation: School of Public Health, University of Milan
+    affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
+    orcid: "0000-0001-7050-1378"
+  - name: Adriana Tomoiaga
+    affiliation: School of Public Health, University of Milan
+    affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
+  - name: Alessia Giorgini
+    affiliation: SAIPEM
+    affiliation-url: https://www.saipem.com/it
+  - name: Fabio Castaldo
+    affiliation: SAIPEM
+    affiliation-url: https://www.saipem.com/it
+date: "`r Sys.Date()`"
+bibliography: biblio.bib
+preview: man/img/Logo_Saipem.png
+execute: 
+  echo: false
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    embed-resources: true
+    other-links:
+      - text: Project URL
+        href: "`r Sys.getenv('PROJ_URL')`"
+---
+
+<!-- DON'T RENDER THE REPORT BY HAND DIRECTLY! -->
+
+<!-- use `targets::tar_make()` instead -->
+
+```{r}
+#| label: setup
+#| include: false
+
+options(
+  width = 90,
+  tidyverse.quiet = TRUE
+)
+
+library(glue)
+library(here)
+library(targets)
+library(tidyverse)
+
+tar_source()
+```
+
+```{r}
+htmltools::img(
+ src = knitr::image_uri(here("man", "img", "Logo_Saipem.png")),
+ alt = 'logo',
+ style = 'position:absolute; width:50px; height:50px; top:0; right:0; padding:10px;'
+)
+```
+
+```{r}
+#| label: packages
+#| include: false
+
+```
+
+## Objective
+
+The main objective of this work is to describe in detail the methodology adopted for the construction of a Country Health Risk Index, illustrating the phases of variable selection, data normalization, weighting, and aggregation. Particular attention will be paid to the theoretical and practical justification of the methodological choices, in order to ensure the consistency and robustness of the index.
+
+A further fundamental objective is the validation of the index itself, through the use of statistical techniques and comparisons with existing measures, in order to verify its reliability, stability, and ability to faithfully represent the phenomenon under study.
+
+## Introduction
+
+### Health Risk
+
+The concept of risk is inherently complex, especially when applied to the context of health. Starting from the definition of health, it is not simply the absence of disease. In this framework, health risk can be understood as any factor that threatens or compromises this state of well-being. Within a country, health risk manifests itself on five distinct levels:
+
+<aside>Risk is traditionally conceptualised as 3 dimensions: Hazard, Vulnerability and Lack of Coping Capacity. In this work we add two additional dimension (Severity and Proximity) to better estimate Risk in a particular time and a particular place.</aside>
+
+-   the first concerns the basic health situation, i.e., the average health conditions and access to services for the entire population as a whole. This defines differences in disease rates between countries;
+
+-   the second level reflects inequalities in equity of access and quality of care between different social groups or geographical areas, highlighting the ability of the health system to ensure equitable coverage of acceptable quality. Those are usually the observed vulnerabilities of a system;
+
+-   the third level reflects the coping capacity (or lack of it), defined as the ability of the system to respond in an effective way to the health needs of the existing population;
+
+-   the fourth level is represented by extraordinary events or crises – such as epidemics, natural disasters, or conflicts, which can abruptly and temporarily alter the collective health status;
+
+-   the fifth level adapts a country-level score to the geographical location of a worksite. This directly impacts how care access is delayed and how a specific area is different from the whole country situation.
+
+Analyzing health risk in these dimensions allows for a better understanding of the resilience and effectiveness of a national health system, consequently providing a reliable estimate of the level of health risk in the country and in a particular place inside it.
+
+### Proposed changes compared to the previous version
+
+The previous version of the Country Risk Index was structured in the same main components. Within the hazard factors, a further distinction was made between biological, environmental, and human risks, with particular emphasis on five communicable diseases as key indicators.
+
+In the new version of the index, a new structure is proposed that is more robust from a methodological point of view: biological risk factors have been replaced by aggregate estimates of mortality and disability, derived from sources such as the Global Burden of Disease. Instead of considering individual diseases, an overall rate is now used that represents the risk of death or illness from all causes, providing a more objective, comparable, and representative measure of actual health risk.
+
+Vulnerability, Capacity and Severity (formerly Crisis modifier) data sources have been expanded, updated, grounded in theory and combined using also geometric averages to highlight the importance at the same time of different co-existing factors.
+
+Proximity adjustment (formerly Medical Support Study Plan) has been streamlined considering only the delay to access healthcare for each location, and expanded the list of contingencies that may modify the local health situation.
+
+## Methods
+
+### Analytical pipeline
+
+The flowchart provides a comprehensive overview of the methodology used to construct the Country Health Risk Index. It outlines the integration of multiple data sources—including the Global Burden of Disease (GBD) for risk factors, WHO and EU JRC INFORM indices for the other components (Proximity adjustment not shown).
+
+Data from these input sources are transformed into standardized indicators through processes such as rate calculation and log-transformation. The final index is computed as the geometric mean of its core components, offering a balanced representation of health risk across countries. The results are then visualized using maps, radar and scatter plots to facilitate interpretation and comparison.
+
+![Data flow from input sources (cilynders) to final products)](images/Schema_CHRI_v2.png){fig-align="center"}
+
+The analytical workflow was implemented using the R 4.5 programming language. Data manipulation and cleaning were conducted using the `tidyverse` suite of packages, while `ggplot2` and `plotly` were employed to generate both static and interactive visualizations. Geospatial visualizations were supported through the use of `leaflet` and `rnaturalearth` for mapping. The project structure was based on a reproducible template incorporating `renv` for dependency management and `targets` for pipeline orchestration. Final outputs and documentation were rendered using `Quarto`, ensuring consistency, transparency, and reproducibility throughout the analytical process.
+
+Every function used to manipulate raw data has been documented with `roxygen` and is available in the package manual `countryhealthrisk`, which has been published together with this work.
+
+```{r, eval=FALSE}
+targets::tar_visnetwork(
+  targets_only = TRUE,
+  exclude = c(
+    "report", "objectToShare", "shareOutput", starts_with("."),
+    all_of(extract_fct_names(here::here("R/utils.R")))
+  )
+)
+```
+
+### Data Sources
+
+#### Global Burden of Disease
+
+The construction of the index is based on modeled estimates from the Global Burden of Disease (GBD) project, one of the most authoritative and comprehensive sources globally for quantifying health loss due to diseases, injuries, and risk factors. The objectivity of this approach lies in the rigorous and transparent methodology adopted by the Institute for Health Metrics and Evaluation (IHME), which enables the production of comparable estimates across time and countries. These estimates are updated annually and are supported by a vast network of scientific collaborators. The GBD framework ensures that the data are mutually exclusive and collectively exhaustive, allowing for a complete and non-overlapping representation of health conditions.
+
+#### HAQI
+
+The Healthcare Access and Quality Index (HAQI) is derived from the Global Burden of Disease Study 2019 (GBD 2019), developed by the Institute for Health Metrics and Evaluation (IHME). It measures personal healthcare access and quality across 204 countries and territories by evaluating mortality rates from 32 causes of death that should be preventable with timely and effective healthcare. The index is scaled from 0 (worst) to 100 (best), with higher scores indicating stronger health system performance.
+
+#### WHO Indicators
+
+The data used in this analysis originates from eight CSV files provided by the World Health Organization, as part of their global reporting on various health-related indicators. Each file contains country-level health indicators, including:
+
+-   data on household health expenditure.
+-   Universal Health Coverage (UHC) service coverage index.
+-   antibiotic consumption patterns.
+-   density of medical doctors.
+-   government expenditure on domestic health.
+-   development assistance to medical research and basic health.
+-   access to essential medicines at health facilities.
+-   deaths due to unsafe water, sanitation, and hygiene services
+
+Each dataset includes a common set of metadata columns such as GEO_NAME_SHORT (country name), DIM_TIME (year), IND_NAME (indicator name), and DIM_GEO_CODE_TYPE (geographic classification).
+
+#### EU INFORM Risk
+
+The EU INFORM Risk Index is a composite indicator developed by the European Commission and partners to measure the risk of humanitarian crises and disasters that could overwhelm national response capacity. It integrates three dimensions: hazard and exposure, vulnerability, and lack of coping capacity. For this analysis, we focused on the vulnerability dimension, which reflects the susceptibility of populations to harm due to factors such as poverty, inequality, and access to basic services.
+
+Data were extracted from the INFORM dataset and filtered to retain only the most recent values per country. Where applicable, we harmonized country names and ensured alignment with the WHO indicators dataset.
+
+#### EU INFORM Severity
+
+The EU INFORM Severity Index is a global, evidence-based tool developed by the European Commission’s Joint Research Centre in collaboration with humanitarian partners. It provides a monthly, objective assessment of the severity of ongoing humanitarian crises, aiming to support prioritization and coordination of humanitarian response. The index integrates multiple dimensions—including impact on people, complexity of the crisis, and conditions for humanitarian access—to offer a comprehensive view of crisis severity.
+
+For this analysis, we focused on the most recent severity scores available per country. Data were extracted from the INFORM Severity dataset and filtered to retain only the latest values. Country names were harmonized to ensure consistency with other datasets used in the project, including WHO indicators. This allowed for integrated analysis across multiple dimensions of crisis and vulnerability.
+
+#### Real-time Survey data from Medical Officer deployed in the different worksites
+
+To account for local variations in health risk within countries, real-time data are collected through routine surveys administered to Medical Officers deployed across different worksites. These surveys, designed using `Microsoft Forms`, capture key contextual information such as access to emergency services, availability of medical infrastructure, and environmental conditions. The collected data are used to inform a proximity-based adjustment to the Country Health Risk Index.
+
+This adjustment is operationalized through the `Medical Support Study and Plan (MSSP)`, a standardized checklist that quantifies site-specific health risk modifiers. Each item in the checklist contributes to a cumulative score, which is then translated into a multiplicative factor ranging from 0.5 (optimal conditions) to 1.5 (critical conditions). This factor is applied to the national risk score to reflect the actual risk level at the operational site, ensuring a more granular and responsive assessment of health threats.
+
+### Rationale for estimates of risk factors related to humans, the environment, and society
+
+The use of synthetic indicators such as Years of Life Lost (YLL) and Disability-Adjusted Life Years (DALY) enables an integrated understanding of the overall impact of health conditions, capturing both premature mortality and years lived with disability. Among the key strengths of this approach is the availability of disaggregated data by year and country, and the public accessibility of both estimates and methods, which promotes transparency and replicability of analyses. This makes GBD data a robust foundation for evidence-based health planning, helping to identify priority areas for intervention.
+
+To operationalize this data, we extract DALY rates for a curated set of causes that reflect both global and context-specific health priorities. These include all-cause DALYs, as well as specific categories such as respiratory infections, enteric infections, neglected tropical diseases, sexually transmitted infections, cardiovascular diseases, mental disorders, transport injuries, violence-related injuries, and other unintentional injuries. Additionally, we compute a composite indicator for “Other Non-Communicable Diseases (NCDs)” by aggregating DALY rates from a defined group of causes including neoplasms, chronic respiratory and digestive diseases, diabetes and kidney disorders, and others. This structured extraction ensures that each health condition contributes to the index in proportion to its actual burden on public health, thereby avoiding arbitrary weighting. However, it is important to note that for expatriate populations, tailored estimates may be necessary to reflect their specific health determinants and exposure profiles, which may differ from those of the resident population.
+
+Another key element in the construction of the index is the choice of the rate as the main unit of measurement. The rate, understood as the rate per population in a given time interval (typically one year), represents a standardized measure that allows for meaningful comparisons between countries, regions, or demographic groups, regardless of the absolute size of the population. This approach allows for capturing the probability of encountering a health event in a defined period, making the indicator not only more interpretable but also more useful for temporal monitoring and risk assessment, even in contexts where absolute numbers could be misleading.
+
+
+### Rationale for estimates of socioeconomic vulnerabilities and access to care
+
+Vulnerability is defined as the set of conditions determined by physical, social, economic, and environmental factors that increase the susceptibility of individuals or communities to the impacts of hazards. Social vulnerability, in particular, refers to the characteristics and circumstances of individuals or groups that influence their capacity to anticipate, cope with, resist, and recover from adverse events. It is shaped by structural inequalities and social determinants such as age, income, education, minority status, housing conditions, and access to healthcare.
+
+To capture this complexity, we propose that a vulnerability index should be composed of multiple indicators spanning these domains. This approach allows for a more holistic understanding of how different social and structural factors interact to shape vulnerability.
+
+This structure draws from the systematic review’s emphasis on using available global indicators to quantify social vulnerability. The review identifies key domains—economic status, infrastructure, demographic risk, and education—as critical to understanding how populations are affected during pandemics like COVID-19. The use of standardized indicators (e.g., EU INFORM, WHO) ensures comparability and evidence-based assessment across regions.
+
+-   Socioeconomic vulnerability reflects the conditions of people and communities, using EU INFORM indicators 23 to 28, which cover poverty and development, inequality, and aid dependency
+-   Infrastructure vulnerability assesses the resilience of buildings and services, incorporating data on unsafe water and sanitation (from WHO) and EU INFORM indicators 44 to 46 (access to electricity, internet, and mobile networks) and 48 to 50 (road density and access to improved sanitation).
+-   Vulnerable groups are captured through EU INFORM indicators 29 and 30 (uprooted people) and 37 to 40 (hunger, undernourishment, and food price volatility).
+-   Lastly, education vulnerability is measured through the adult literacy rate, highlighting the population’s capacity to access and use information for resilience and recovery.
+
+
+### Rationale for estimates of response capacities
+
+The HSPA (Health System Performance Assessment) Framework for Universal Health Coverage (UHC) is designed to bridge descriptive health system assessments (HSAs) with performance-oriented evaluations. It focuses on four core functions:
+
+-   Governance
+-   Resource Generation
+-   Financing
+-   Service Delivery
+
+Each function is linked to intermediate objectives (e.g. access, quality, efficiency) and final goals (e.g. health improvement, equity, financial protection, people-centeredness)
+
+To measure “capacity” in a way that is aligned with the HSPA framework, we must define capacity as the system’s ability to mobilize and manage resources, deliver services, and govern effectively.
+
+To operationalize this across the four functions, we propose a composite “Health System Capacity Index” using weighted indicators from each function, tailored to your country or region’s context.
+
+
+### Risk Index construction for each country
+
+The final calculation of the health risk index is obtained as the geometric mean of the three fundamental components: the level of exposure to health risk factors, socioeconomic vulnerability, and the response capacity of the health system. This methodological choice is directly inspired by the approach adopted by the INFORM Risk Index, which uses the geometric mean to combine conceptually distinct but interdependent dimensions.
+
+The use of the geometric mean, compared to the arithmetic mean, is particularly appropriate as it more markedly penalizes extremely low values in one of the components, reflecting the principle that a significant weakness in just one area (e.g., low response capacity) can compromise the entire system. Furthermore, this methodology prevents a very high value in one dimension from completely compensating for a critical value in another, thus ensuring a more realistic and balanced representation of overall risk.
+
+
+### Rationale for estimating Crisis Severity
+
+To enhance the contextual accuracy of our country-level health risk assessment, we integrated the EU INFORM Severity Index as a dynamic crisis modifier. The INFORM Severity Index is a composite indicator developed by the European Commission and the INFORM initiative to quantify the severity of humanitarian crises in a standardized and globally comparable way. It aggregates data across three core dimensions: the impact of the crisis (e.g., number of people affected), the conditions of those affected (e.g., vulnerability and access to services), and the complexity of the crisis (e.g., political instability, access constraints). The index ranges from 1 (low severity) to 5 (extreme severity), offering a structured lens through which to interpret the urgency and scale of a crisis.
+
+<aside>Driver taxonomy is standardised and each driver impacts only some component of risks.</aside>
+
+In our methodology, we used this index to adjust the baseline health risk score—originally computed as the geometric mean of hazard, vulnerability, and capacity indicators. Recognizing that structural risk alone may not fully capture the real-time intensity of a crisis, we applied a transformation to the severity index to scale it between 1 and 2. Specifically, we used the formula:
+
+$$
+\text{adjusted risk} = \text{risk} + \left( \frac{\text{severity index} - 1}{4} \right) \times (1 - \text{risk})
+$$
+
+
+This transformation ensures that a severity index of 1 results in no adjustment (factor = 1), while an index of 5 doubles the baseline risk (factor = 2). The final severity-adjusted risk score is then calculated by multiplying the original overall risk by this severity factor. This approach allows the model to remain sensitive to both long-term systemic vulnerabilities and acute crisis conditions, ensuring that countries experiencing severe humanitarian emergencies are appropriately prioritized in risk-based decision-making.
+
+### Correlation analysis
+
+To explore the relationships among key dimensions of humanitarian risk, we computed the pairwise Pearson correlation matrix across a selected set of indicators. These indicators were grouped into thematic clusters: health-related hazards, vulnerability, capacity, and crisis severity. The correlation matrix was visualized using a heatmap, with correlation coefficients displayed in each cell and a custom red-white-red color scale. This scale emphasized strong correlations (\|r\| \> 0.4) while visually de-emphasizing weaker associations.
+
+To enhance interpretability, we highlighted variable clusters with colored rectangles corresponding to their thematic groupings. This allowed us to assess both intra-cluster coherence (how strongly variables within a group correlate with each other) and inter-cluster relationships (how distinct the clusters are from one another). The analysis was conducted using tidyverse tools in R, ensuring reproducibility and clarity in data handling and visualization.
+
+### Rationale for estimating the impact of the individual site and within the country
+
+To adapt the health risk assessment to the specific context in which operators work, it is necessary to consider the residence site as a determining variable. The main factor affecting health at a site is the degree of isolation index, i.e., how difficult it is to access different levels of health service from that location. This difficulty also has a direct impact on mitigation strategies: as the available services within the site increase, the time required to access them decreases, thus improving the local health response.
+
+For each of these levels, an access time can be estimated, taking into account both the internal availability at the site and the need to move to external facilities. This is supplemented by factors such as the mode of transport (private car, escorted vehicle, helicopter) and, if relevant, the length of waiting lists. Furthermore, the quality of care available in the local health system represents an additional element to consider, as it affects the actual capacity to respond to health needs. The resulting difficulty index is therefore a composite measure, based on time and access conditions, easily interpretable and directly applicable to service planning. This approach also provides an operational rationale for sizing the health offer within the site, justifying the allocation of resources based on local risk and criticality.
+
+To refine country-level health risk assessments for remote worksites, we developed a localisation framework that integrates expert survey data with proximity-specific indicators. This approach accounts for the variability in healthcare access and outbreak exposure across different regions within the same country. The process combines structured Delphi survey responses, proximity assessments from field personnel, and epidemiological risk scores to produce a localised health risk index tailored to the worksite.
+
+#### Survey-Based Estimation of Diagnosis and Transport Delay Sensitivity
+
+We designed a Delphi-style survey to capture expert perceptions of how delays in diagnosis and transport affect patient outcomes in remote settings. Respondents evaluated ten dimensions of concern across 14 clinical scenarios, ranging from acute abdominal pain to mental health crises. Each scenario included four diagnosis delay intervals and four transport delay intervals, plus two questions on health and wellbeing impact. To ensure consistency and interpretability, monotonicity within each delay group, ensuring that concern levels do not decrease as delays increase. The survey also asked outbreak risk-related questions, which were summarized separately, enabling weighted scoring based on perceived outbreak risk.
+
+#### Proximity-Based Risk Adjustment
+
+To incorporate local context, we collected proximity assessments from field personnel using a structured form. This included responses to the same delay questions as the survey, as well as outbreak concern ratings and population estimates (local residents, expatriates, and families). Information requested to the worksite are split across three components:
+
+- Disease-specific score: Each delay response is matched against the aggregated concern proportions from the survey. A ±0.1 adjustment is applied based on whether the concern exceeds a threshold (default is 0.67, representing the proportion of health personnel that should be worried about a condition to increase the overall risk level).
+- Outbreak score: Responses are weighted by concern level and matched to survey's outbreak concern proportions
+- People score: Log-transformed population values are adjusted to reflect density and vulnerability. Local residents contribute positively, while expatriate families are capped to avoid overestimation.
+
+The final proximity score is the sum of these three components, representing the localised health risk contribution from diagnosis or transport delay sensitivity, outbreak exposure, and population exposure.
+
+#### Localised Risk Integration
+
+The proximity scores are merged with country-level severity-adjusted risk estimates. This is performed through an odds-based adjustment to the baseline risk, ensuring that localised factors proportionally influence the final risk score. Specifically, the baseline risk is converted to odds, incremented by the proximity score, and transformed back to a probability. This approach preserves the bounded nature of risk (0–1) while allowing for non-linear amplification in high-risk contexts.
+
+## Results
+
+### Health risk section
+
+```{r, echo=FALSE}
+tar_read(map_daly_avg)
+```
+
+### Vulnerability section
+
+```{r, echo=FALSE}
+tar_read(map_vul_score)
+```
+
+```{r, echo=FALSE, fig.height=12, dpi=300}
+tar_read(fig_vul_bar)
+```
+
+### Capacity section
+
+```{r, echo=FALSE}
+tar_read(map_cap_score)
+```
+
+```{r, echo=FALSE, fig.height=12, dpi=300}
+tar_read(fig_cap_bar)
+```
+
+### Risk Score calculation
+
+A map of unadjusted health risk
+
+```{r, echo=FALSE}
+tar_read(map_risk_score)
+```
+
+A 3D plot of the different components, where available
+
+```{r, echo=FALSE}
+tar_read(fig_3d_risk)
+```
+
+An histogram to show distribution of available values
+
+```{r, echo=FALSE}
+tar_read(fig_risk_hist)
+```
+
+And bar chart of risk score across countries
+
+```{r, echo=FALSE, r, fig.height=12, dpi=300}
+tar_read(fig_risk_bars)
+```
+
+### Severity adjustment
+
+A crisis severity map
+
+```{r, echo=FALSE}
+tar_read(map_sev_score)
+```
+
+And a severity-adjusted risk core can be computed.
+
+<aside>This is the main result of this assessment.</aside>
+
+```{r, echo=FALSE}
+tar_read(map_adj_risk_score)
+```
+
+And can be checked against previous values from the previous version
+
+```{r, echo=FALSE}
+tar_read(fig_lolliplot3)
+```
+
+### Analysis and Validation
+
+#### Correlation analysis
+
+For the variables that are part of the model, we can visualise them.
+
+```{r, echo=FALSE, fig.width=10, fig.height=10, fig.asp=NULL, out.width="120%", dpi=300}
+tar_read(corplot)
+```
+
+The correlation matrix revealed strong internal consistency within the vulnerability, capacity, and crisis severity clusters. Variables within each of these groups showed high intra-cluster correlations, suggesting that they capture coherent and internally consistent dimensions of risk. For example, indicators such as infrastructure, adult literacy, and socio-economic vulnerability were tightly correlated, reinforcing the conceptual integrity of the vulnerability construct.
+
+Interestingly, while vulnerability and capacity were highly correlated with each other, their correlations with crisis severity indicators were relatively low. This suggests that although vulnerability and capacity may reflect overlapping structural conditions, crisis severity captures a distinct dimension—likely more responsive to acute events and contextual dynamics rather than structural factors.
+
+In contrast, the hazard cluster—comprising various disease-specific burden indicators—exhibited low intra-cluster correlation. This was expected, as different countries face different epidemiological profiles, and the burden of one disease does not necessarily predict the burden of another. However, the composite hazard score, which aggregates these disease burdens, showed a strong correlation with the "all causes" disease burden indicator. This validates the aggregation approach and confirms that the composite hazard score effectively captures overall health-related risk
+
+### Impact of the individual site and within the country
+
+####  Survey-Based Estimation of Diagnosis and Transport Delay Sensitivity
+
+#### Proximity-Based Risk Adjustment
+
+## Discussion
+
+### Comparison with previous risk (unadjusted)
+
+Can be observed as the average difference among the previous version of the score and the updated one.
+
+```{r, echo=FALSE}
+tar_read(fig_lolliplot1) 
+```
+
+### Comparison with previous risk (severity adjusted)
+
+Can be observed as the average difference among the previous version of the score and the updated one, now with the risk adjustment.
+
+```{r, echo=FALSE}
+tar_read(fig_lolliplot4) |>
+  plotly::ggplotly()
+```
+
+
+## Acknowledgments {.appendix}
+
+The authors gratefully acknowledge the LAIMS Lab at UBESP, University of Padova, for providing the analytical template that supported the development of a reproducible and well-structured workflow.
+
+## Author Contributions {.appendix}
+
+We strongly encourage you to include an author contributions statement briefly describing what each author did.
+
+## Environment {.appendix}
+
+<details>
+
+<summary>Session info</summary>
+
+```{r, results='markup'}
+devtools::session_info()
+```
+
+</details>

@@ -1,0 +1,166 @@
+---
+title: "Clustering Analysis of Disease Concern Levels"
+author: "Andrea Pedot"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-tools: true
+    number-sections: true
+---
+
+```{r setup, include=FALSE}
+# Load required libraries
+library(tidyverse)
+library(ggfortify)
+library(plotly)
+library(ggplot2)
+library(ggdendro)
+library(cluster)
+library(factoextra)
+library(targets)
+
+# Load custom pipeline data and functions
+tar_source()
+survey <- tar_read(survey)
+```
+
+## Introduction
+
+In this analysis, we explore patterns in public concern levels about different diseases using clustering techniques. Specifically, we use:
+
+-   **Principal Component Analysis (PCA)** for dimensionality reduction and visualization.
+
+-   **K-Means Clustering** to group diseases with similar concern profiles.
+
+-   **Hierarchical Clustering** to examine disease similarity through dendrograms.
+
+## Data Preparation
+
+We start by transforming the `survey` data into long format and filtering for only the `"Very concerned"` responses.
+
+```{r}
+long <- pivot_disease_data(survey)
+
+wide <- long |>
+  dplyr::filter(response == "Very concerned") |>  # Optional: filter by response
+  mutate(question_response = paste(question, response, sep = " - ")) |>
+  select(disease, question_response, prop) |>
+  pivot_wider(names_from = question_response, values_from = prop, values_fill = 0)
+
+summary(wide)
+
+```
+
+## Principal Component Analysis (PCA)
+
+We apply PCA to reduce the dimensionality of the data for easier visualization.
+
+```{r}
+pca_input <- wide |>
+  select(-disease) |>
+  as.matrix()
+
+pca_result <- prcomp(pca_input, scale. = TRUE)
+```
+
+To get a better sense of spatial relationships, we visualize the first three principal components using **Plotly** in 3D.
+
+```{r}
+pca_df <- as_tibble(pca_result$x[, 1:3]) |>
+  mutate(disease = wide$disease)
+
+plot_ly(pca_df, x = ~PC1, y = ~PC2, z = ~PC3,
+        type = 'scatter3d', mode = 'text+markers',
+        text = ~disease,
+        marker = list(size = 4)) |>
+  layout(title = "PCA of Disease Similarity (3D)")
+```
+
+## K-Means Clustering
+
+We use K-means clustering to identify groups of diseases with similar concern profiles.
+
+```{r}
+# Recreate matrix with disease as row names
+mat <- wide |>
+  column_to_rownames("disease") |>
+  as.matrix()
+
+# Scale the data
+scaled_mat <- scale(mat)
+
+set.seed(123)
+# Perform K-means with k = 2
+kmeans_result <- kmeans(scaled_mat, centers = 2)
+fviz_cluster(kmeans_result, data = scaled_mat,
+             geom = "text", labelsize = 12,
+             repel = TRUE,
+             main = "K-Means Clustering of Diseases (k = 2)",
+             ggtheme = theme_minimal())
+
+# Perform K-means with k = 4
+kmeans_result <- kmeans(scaled_mat, centers = 4)
+fviz_cluster(kmeans_result, data = scaled_mat,
+             geom = "text", labelsize = 12,
+             repel = TRUE,
+             main = "K-Means Clustering of Diseases (k = 4)",
+             ggtheme = theme_minimal())
+
+# Perform K-means with k = 5
+kmeans_result <- kmeans(scaled_mat, centers = 5)
+fviz_cluster(kmeans_result, data = scaled_mat,
+             geom = "text", labelsize = 12,
+             repel = TRUE,
+             main = "K-Means Clustering of Diseases (k = 5)",
+             ggtheme = theme_minimal())
+
+# Perform K-means with k = 6
+kmeans_result <- kmeans(scaled_mat, centers = 6)
+fviz_cluster(kmeans_result, data = scaled_mat,
+             geom = "text", labelsize = 12,
+             repel = TRUE,
+             main = "K-Means Clustering of Diseases (k = 6)",
+             ggtheme = theme_minimal())
+```
+
+**Section: Determine Optimal Number of Clusters**
+
+```{r}
+# Elbow Method 
+fviz_nbclust(scaled_mat, kmeans, method = "wss") +
+  ggtitle("Elbow Method for Optimal k") 
+# Silhouette Method 
+fviz_nbclust(scaled_mat, kmeans, method = "silhouette") +
+  ggtitle("Silhouette Method for Optimal k")
+```
+
+These plots help determine the best number of clusters:
+
+-   The **elbow** in the WSS (Within Sum of Squares) plot suggests a good `k`.
+
+-   The **silhouette** method shows how well-separated the clusters are.
+
+## Hierarchical Clustering
+
+We also explore disease relationships using hierarchical clustering and a dendrogram.
+
+```{r}
+# Compute distance matrix
+dist_mat <- dist(mat)
+
+# Perform hierarchical clustering using Ward's method
+hc <- hclust(dist_mat, method = "ward.D2")
+
+# Plot dendrogram
+ggdendrogram(hc, rotate = FALSE, size = 2) +
+  ggtitle("Hierarchical Clustering of Diseases") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+## Conclusion
+
+This analysis shows how clustering techniques can be used to uncover patterns in public concern about diseases. PCA helped reduce dimensionality for visualization, while both K-means and hierarchical clustering offered complementary views on disease similarity.

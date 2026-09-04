@@ -1,0 +1,10 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+inst/extdata
+.Renviron
+countryriskindex.Rcheck/
+countryriskindex*.tar.gz
+countryriskindex*.tgz
+renv/

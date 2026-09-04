@@ -1,0 +1,222 @@
+---
+title: "Vulnerability Component: an inequality-based approach"
+subtitle: "3.13"
+description: "Description of how to combine the vulnerability score"
+author:
+  - name: Andrea Pedot
+    affiliation: School of Public Health, University of Milan
+    affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
+    orcid: "0000-0001-7050-1378"
+  - name: Adriana Tomoiaga
+    affiliation: School of Public Health, University of Milan
+    affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
+  - name: Alessia Giorgini
+    affiliation: SAIPEM
+    affiliation-url: https://www.saipem.com/it
+  - name: Fabio Castaldo
+    affiliation: SAIPEM
+    affiliation-url: https://www.saipem.com/it
+date: "`r Sys.Date()`"
+bibliography: biblio.bib
+preview: man/img/Logo_Saipem.png
+execute: 
+  echo: false
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    embed-resources: true
+    other-links:
+      - text: Project URL
+        href: "`r Sys.getenv('PROJ_URL')`"
+---
+
+<!-- DON'T RENDER THE REPORT BY HAND DIRECTLY! -->
+
+<!-- use `targets::tar_make()` instead -->
+
+```{r}
+#| label: setup
+#| include: false
+
+options(
+  width = 90,
+  tidyverse.quiet = TRUE
+)
+
+library(glue)
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(targets)
+
+tar_source()
+```
+
+```{r}
+htmltools::img(
+ src = knitr::image_uri(here("man", "img", "Logo_Saipem.png")),
+ alt = 'logo',
+ style = 'position:absolute; width:50px; height:50px; top:0; right:0; padding:10px;'
+)
+```
+
+```{r}
+#| label: packages
+#| include: false
+
+```
+
+## Objective
+
+This document shows the behaviour of four candidate ways to measure vulnerability through difference among quintiles in key health-related measures.
+
+### Under-5 Mortality Rate - by wealth quintile
+
+Under-5 mortality represents a particularly useful indicator: not only because it reflects avoidable health conditions and is therefore sensitive to the quality of care, but also because it is widely measured globally, with data available and disaggregated by socioeconomic quintiles thanks to the IGME (Inter-agency Group for Child Mortality Estimation) estimates, available [at this link](https://childmortality.org/all-cause-mortality/data/wealth). This allows for directly quantifying internal inequalities within each country. Unfortunately, not all countries take part in IGME surveys, and other indicators have been considered
+
+### Self-reported Health Status - by wealth quintile
+
+For OECD countries, self-reported health status (SRHS) is available by wealth quintiles, [at this link](https://data-explorer.oecd.org/vis?lc=en&df%5Bds%5D=dsDisseminateFinalDMZ&df%5Bid%5D=DSD_HEALTH_STAT%40DF_PHS_SES&df%5Bag%5D=OECD.ELS.HD&df%5Bvs%5D=1.0&dq=.A...._T.Q1....G..&pd=2010%2C&to%5BTIME_PERIOD%5D=false). OECD country list doesn't overlap with IHME country list, apart from Turkey, providing no way to verify if intra-country variability is the same for both health outcomes. As data quality issues in OECD countries are largely addressed, even more difficult-to-measure outcomes can be a valid alternative.
+
+### Catastrophic Health Expenditure - by wealth
+
+Global datasets from institutions like the World Bank and OECD, which offer broad, comparable statistics across countries.
+
+For nearly all countries, World Bank surveys the proportion of people that are very worried about not being able to pay for medical costs in the case of a serious illness or accident, which is a proxy of how Universal Health Coverage (in its narrow definition of protection from catastrofic health expenditure). As data are available for nearly 140 countries, accessible [at this link](https://data360.worldbank.org/en/indicator/WB_FINDEX_FIN44B_D_1).
+
+## Correlation analysis - bivariate
+
+Merge the three files
+
+```{r}
+combined_df <- tar_read(srhs) |>
+  dplyr::select("REF_AREA", srhs_delta = delta) |>
+  dplyr::full_join(tar_read(u5_mr) |>
+                      dplyr::select(REF_AREA, u5_mr_delta = delta),
+                    by = "REF_AREA") |>
+  dplyr::full_join(tar_read(worry) |>
+                      dplyr::select(REF_AREA, worry_delta = delta),
+                    by = "REF_AREA") |>
+  dplyr::mutate(
+    srhs_rank = rank(srhs_delta, ties.method = "min"),
+    u5_mr_rank = rank(u5_mr_delta, ties.method = "min"),
+    worry_rank = rank(worry_delta, ties.method = "min")
+  ) |>
+  dplyr::mutate(
+    srhs_q100 = dplyr::percent_rank(srhs_delta),
+    u5_mr_q100 = dplyr::percent_rank(u5_mr_delta),
+    worry_q100 = dplyr::percent_rank(worry_delta)
+  )
+
+cleaned_df1 <- combined_df |>
+  dplyr::filter(!is.na(u5_mr_delta) & !is.na(worry_delta))
+cleaned_df2 <- combined_df |>
+  dplyr::filter(!is.na(srhs_delta) & !is.na(worry_delta))
+```
+
+Kendall’s Tau Correlation measures the ordinal association between two  rankings with a non-parametric test. A value of 1.0 indicates perfect agreement in ranking order, though the p-values suggest the sample size is too small to confirm statistical significance.
+
+There is no overlap (apart from Turkey) between U5MR (which is on L/MICs) and SRHS (which is on HICs), and partial overlap between Worry (the WB database) and the others:
+
+-   between Worry and U5MR
+
+    ```{r}
+    cleaned_df1 |> dplyr::glimpse()
+    ```
+
+    Kendall Rank Correlation Calculation on Complete Rows Only
+
+    ```{r}
+    cleaned_df1 <- cleaned_df1 |>
+      dplyr::mutate(
+        u5_mr_rank = rank(u5_mr_delta, ties.method = "min"),
+        worry_rank = rank(worry_delta, ties.method = "min"),
+        u5_mr_q100 = dplyr::percent_rank(u5_mr_delta),
+        worry_q100 = dplyr::percent_rank(worry_delta)
+      )
+    cor.test(cleaned_df1$u5_mr_rank, cleaned_df1$worry_rank, method = "kendall")
+    ```
+
+    That can be visualised in a plot
+
+    ```{r}
+    ggplot(cleaned_df1,
+           aes(x = worry_rank, y = u5_mr_rank)) +
+      geom_point(alpha = 1/3) +
+      geom_smooth(color = "purple")
+    ```
+
+<!-- -->
+
+-   between Worry and SRHS
+
+    ```{r}
+    cleaned_df1 |> dplyr::glimpse()
+    ```
+
+    Kendall Rank Correlation Calculation on Complete Rows Only
+
+    ```{r}
+    cleaned_df2 <- cleaned_df2 |>
+      dplyr::mutate(
+        srhs_rank = rank(srhs_delta, ties.method = "min"),
+        worry_rank = rank(worry_delta, ties.method = "min"),
+        srhs_q100 = dplyr::percent_rank(srhs_delta),
+        worry_q100 = dplyr::percent_rank(worry_delta)
+      )
+    cor.test(cleaned_df2$srhs_rank, cleaned_df2$worry_rank, method = "kendall")
+    ```
+
+    That can be visualised in a plot
+
+    ```{r}
+    ggplot(cleaned_df2,
+           aes(x = worry_rank, y = srhs_rank)) +
+      geom_point(alpha = 1/3) +
+      geom_smooth(color = "cyan")
+    ```
+
+As can be seen, the correlation with each of the measures is very weak. A tau = 0.15 indicates weak positive agreement between the two rankings.
+The rankings are somewhat aligned, but there are many discordant pairs (i.e., items ranked differently) and it may suggest that the two indicators are only loosely related in how they rank countries or subjects.
+
+## Correlation analysis - global
+
+The same matrix can be calculated across the full dataset (using the ranks for the full column, which slightly changes values from the correlation calculated above), which can then be plotted
+
+```{r}
+rank_data <- combined_df[, c("srhs_rank", "u5_mr_rank", "worry_rank")]
+cor_matrix <- cor(rank_data, method = "kendall")
+cor_melt <- reshape2::melt(cor_matrix)
+
+ggplot(cor_melt, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 5) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white",
+                       midpoint = 0.5, limit = c(0, 1), space = "Lab",
+                       name = "Kendall\nCorrelation") +
+  theme_minimal() +
+  labs(title = "Concordance Heatmap among ranks",
+       x = "", y = "") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+```
+
+And Kendall's W can be obtained, as Test of Concordance. It's a test agreement across more than two rankings simultaneously, which is used when interested in overall consistency among all rankers. It ranges between 0 and 1 (with 1 = perfect concordance)
+
+```{r}
+rank_matrix <- as.matrix(combined_df[, c("srhs_rank", "u5_mr_rank", "worry_rank")])
+irr::kendall(rank_matrix)
+```
+
+A Result of W = 0.461 indicates moderate agreement among the rankings.
+It suggests that the three rank variables are somewhat aligned, but not perfectly. Depending on your context, this might be acceptable or might indicate the need to investigate why the rankings differ.
+
+## Conclusion
+
+Given the low concordance, the use of inequality measures is promising but unfeasible on a global scale. The low concordance doesn't allow to create a global wide picture that makes countries comparable with each other.
+
+Thus, even if the approach was promising, it must be revisited when more data will be available.

@@ -1,0 +1,180 @@
+---
+title: "Vulnerability Component: aggregating "
+subtitle: "3.13"
+description: "Description of how to combine the vulnerability score"
+author:
+  - name: Andrea Pedot
+    affiliation: School of Public Health, University of Milan
+    affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
+    orcid: "0000-0001-7050-1378"
+  - name: Adriana Tomoiaga
+    affiliation: School of Public Health, University of Milan
+    affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
+  - name: Alessia Giorgini
+    affiliation: SAIPEM
+    affiliation-url: https://www.saipem.com/it
+  - name: Fabio Castaldo
+    affiliation: SAIPEM
+    affiliation-url: https://www.saipem.com/it
+date: "`r Sys.Date()`"
+bibliography: biblio.bib
+preview: man/img/Logo_Saipem.png
+execute: 
+  echo: false
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    embed-resources: true
+    other-links:
+      - text: Project URL
+        href: "`r Sys.getenv('PROJ_URL')`"
+---
+
+<!-- DON'T RENDER THE REPORT BY HAND DIRECTLY! -->
+
+<!-- use `targets::tar_make()` instead -->
+
+```{r}
+#| label: setup
+#| include: false
+
+options(
+  width = 90,
+  tidyverse.quiet = TRUE
+)
+
+library(glue)
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(targets)
+
+tar_source()
+```
+
+```{r}
+htmltools::img(
+ src = knitr::image_uri(here("man", "img", "Logo_Saipem.png")),
+ alt = 'logo',
+ style = 'position:absolute; width:50px; height:50px; top:0; right:0; padding:10px;'
+)
+```
+
+```{r}
+#| label: packages
+#| include: false
+
+```
+
+## Objective
+
+This document shows how to calculate the Vulnerability and Capacity composite indicators.
+
+This integration allows for a multidimensional view of national fragility and coping capacities, combining health system performance with structural vulnerability. The resulting dataset supports comparative analysis and helps identify countries where health challenges intersect with broader social and economic risks.
+
+## Data Sources
+
+### EU INFORM Risk
+
+The EU INFORM Risk Index is a composite indicator developed by the European Commission and partners to measure the risk of humanitarian crises and disasters that could overwhelm national response capacity. It integrates three dimensions: hazard and exposure, vulnerability, and lack of coping capacity. For this analysis, we focused on the vulnerability dimension, which reflects the susceptibility of populations to harm due to factors such as poverty, inequality, and access to basic services.
+
+Data were extracted from the INFORM dataset and filtered to retain only the most recent values per country. Where applicable, we harmonized country names and ensured alignment with the WHO indicators dataset.
+
+```{r}
+tar_read(inform_cap) |>
+  skimr::skim()
+```
+
+### WHO Indicators
+
+The data used in this analysis originates from eight CSV files provided by the World Health Organization, as part of their global reporting on various health-related indicators. Each file contains country-level health indicators, including:
+
+-   data on household health expenditure.
+-   Universal Health Coverage (UHC) service coverage index.
+-   antibiotic consumption patterns.
+-   density of medical doctors.
+-   government expenditure on domestic health.
+-   development assistance to medical research and basic health.
+-   access to essential medicines at health facilities.
+-   deaths due to unsafe water, sanitation, and hygiene services
+
+Each dataset includes a common set of metadata columns such as GEO_NAME_SHORT (country name), DIM_TIME (year), IND_NAME (indicator name), and DIM_GEO_CODE_TYPE (geographic classification).
+
+To ensure consistency and comparability across datasets, the following preprocessing steps were applied:
+
+-   Country-Level Filtering: Only rows where DIM_GEO_CODE_TYPE == "COUNTRY" were retained to focus the analysis on national-level statistics.
+
+-   Most Recent Year Selection: For each country and each indicator, only the most recent year of available data was selected using the DIM_TIME column.
+
+-   Subgroup Filtering: Where applicable, additional filters were applied to ensure comparability
+
+```{r}
+tar_read(who_indicators) |>
+  skimr::skim()
+```
+
+### HAQI
+
+The Healthcare Access and Quality Index (HAQI) is derived from the Global Burden of Disease Study 2019 (GBD 2019), developed by the Institute for Health Metrics and Evaluation (IHME). It measures personal healthcare access and quality across 204 countries and territories by evaluating mortality rates from 32 causes of death that should be preventable with timely and effective healthcare. The index is scaled from 0 (worst) to 100 (best), with higher scores indicating stronger health system performance.
+
+```{r}
+tar_read(haq_index)  |>
+  skimr::skim()
+```
+
+## Measuring Vulnerability
+
+Vulnerability is defined as the set of conditions determined by physical, social, economic, and environmental factors that increase the susceptibility of individuals or communities to the impacts of hazards. Social vulnerability, in particular, refers to the characteristics and circumstances of individuals or groups that influence their capacity to anticipate, cope with, resist, and recover from adverse events. It is shaped by structural inequalities and social determinants such as age, income, education, minority status, housing conditions, and access to healthcare.
+
+To capture this complexity, we propose that a vulnerability index should be composed of multiple indicators spanning these domains. This approach allows for a more holistic understanding of how different social and structural factors interact to shape vulnerability.
+
+This structure draws from the systematic review’s emphasis on using available global indicators to quantify social vulnerability. The review identifies key domains—economic status, infrastructure, demographic risk, and education—as critical to understanding how populations are affected during pandemics like COVID-19. The use of standardized indicators (e.g., EU INFORM, WHO) ensures comparability and evidence-based assessment across regions.
+
+-   Socioeconomic vulnerability reflects the conditions of people and communities, using EU INFORM indicators 23 to 28, which cover poverty and development, inequality, and aid dependency
+-   Infrastructure vulnerability assesses the resilience of buildings and services, incorporating data on unsafe water and sanitation (from WHO) and EU INFORM indicators 44 to 46 (access to electricity, internet, and mobile networks) and 48 to 50 (road density and access to improved sanitation).
+-   Vulnerable groups are captured through EU INFORM indicators 29 and 30 (uprooted people) and 37 to 40 (hunger, undernourishment, and food price volatility).
+-   Lastly, education vulnerability is measured through the adult literacy rate, highlighting the population’s capacity to access and use information for resilience and recovery.
+
+```{r}
+tar_read(map_vul_score)
+```
+
+```{r}
+tar_read(fig_vul_bar) |>
+  plotly::ggplotly()
+```
+
+
+## Measuring Capacity
+
+The HSPA (Health System Performance Assessment) Framework for Universal Health Coverage (UHC) is designed to bridge descriptive health system assessments (HSAs) with performance-oriented evaluations. It focuses on four core functions:
+
+-   Governance
+-   Resource Generation
+-   Financing
+-   Service Delivery
+
+Each function is linked to intermediate objectives (e.g. access, quality, efficiency) and final goals (e.g. health improvement, equity, financial protection, people-centeredness)
+
+To measure “capacity” in a way that is aligned with the HSPA framework, we must define capacity as the system’s ability to mobilize and manage resources, deliver services, and govern effectively.
+
+To operationalize this across the four functions, we propose a composite “Health System Capacity Index” using weighted indicators from each function, tailored to your country or region’s context.
+
+```{r}
+tar_read(map_cap_score)
+```
+
+```{r}
+tar_read(fig_cap_bar) |>
+  plotly::ggplotly()
+```
+
+
+## Conclusion
+
+The proposed approach of combining the variables is effective in estimating vulnerability and capacity, and it's up to date with the current understanding of both the concepts.
+
