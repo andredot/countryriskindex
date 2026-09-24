@@ -4,10 +4,14 @@
 \alias{create_correlation_matrix_with_groups}
 \title{Correlation Matrix with Group Highlights}
 \usage{
-create_correlation_matrix_with_groups(df)
+create_correlation_matrix_with_groups(df, max_causes = 12)
 }
 \arguments{
 \item{df}{A data frame containing the variables to correlate.}
+
+\item{max_causes}{Maximum number of GBD cause columns to include. When the
+extract carries more, the causes with the largest cross-country spread are
+kept so the heatmap stays readable.}
 }
 \value{
 A ggplot2 heatmap of the correlation matrix with group annotations.

@@ -2,26 +2,43 @@
 % Please edit documentation in R/functions.R
 \name{update_score}
 \alias{update_score}
-\title{Update a Score Based on Severity Multiplier and Repetition Count}
+\title{Update a Score Based on a Severity Multiplier and Repetition Count}
 \usage{
-update_score(base_value, multiplier, times = 1)
+update_score(base_value, multiplier, times = 1, max_times = 3)
 }
 \arguments{
-\item{base_value}{A numeric vector of base scores.}
+\item{base_value}{A numeric vector of base scores in \verb{[0, 1]}.}
 
-\item{multiplier}{A numeric vector of severity multipliers.}
+\item{multiplier}{A numeric vector of severity multipliers in \verb{[1, 5]}. \code{NA}
+leaves the score unchanged.}
 
-\item{times}{An integer vector indicating how many times to apply the
-adjustment (default is 1, capped at 3).}
+\item{times}{An integer vector giving how many times to apply the adjustment.
+Values below 0 are treated as 0; \code{NA} is treated as 0.}
+
+\item{max_times}{Maximum number of applications (default 3).}
 }
 \value{
 A numeric vector of adjusted scores.
 }
 \description{
-Adjusts a base score using a severity multiplier. The adjustment is applied
-multiple times, capped at 3 repetitions. Each iteration increases the score
-proportionally to the severity.
+Adjusts a base score using a 1-5 severity multiplier, applied \code{times} times:
+}
+\details{
+\deqn{score \leftarrow score + \frac{m - 1}{4}(1 - score)}
+
+Note that this is a convex pull towards 1: at \code{m = 5} a single application
+returns exactly 1 regardless of the base value. It is retained for the radar
+chart, where the intent is a saturating visual emphasis, but it is no longer
+used for the headline index - see \code{\link[=add_severity]{add_severity()}} and the log-odds
+\code{\link[=logit_shift]{logit_shift()}}.
+
+The v4.0 implementation contained an off-by-one: \code{times} was decremented
+whenever it exceeded 1, so \code{times = 1} and \code{times = 2} behaved identically
+and \code{times = 3} and above collapsed to two applications. v4.1 applies the
+adjustment exactly \code{times} times, capped at \code{max_times}.
 }
 \examples{
 update_score(base_value = c(0.6, 0.7), multiplier = c(3, NA), times = c(2, 1))
+# times is now honoured exactly:
+update_score(0.5, 3, times = 1) < update_score(0.5, 3, times = 2)
 }

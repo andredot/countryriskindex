@@ -13,5 +13,10 @@ countryriskindex is an R package for computing the Country Health Risk Index (CH
 \author{
 \strong{Maintainer}: Andrea Pedot \email{andrea.pedot@unimi.it} (\href{https://orcid.org/0000-0001-7050-1378}{ORCID})
 
+Authors:
+\itemize{
+  \item Andrea Pedot \email{andrea.pedot@unimi.it} (\href{https://orcid.org/0000-0001-7050-1378}{ORCID})
+}
+
 }
 \keyword{internal}

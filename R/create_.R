@@ -36,6 +36,30 @@ createmap <- function(data = NULL,
                       legend_title = "Legend",
                       label_prefix = "Value:",
                       zoom_to_country = NULL) {
+  # Fail with a usable message rather than a tidyselect error from deep inside
+  # the join. The default data_key ("REF_AREA") suits the UN-style inputs, but
+  # most tables here are keyed on ISO_A3.
+  if (is.null(data)) {
+    stop("createmap(): `data` is NULL.", call. = FALSE)
+  }
+  if (!data_key %in% names(data)) {
+    stop(
+      "createmap(): join column '", data_key, "' is not in `data`. ",
+      "Pass the right `data_key` (most tables here use \"ISO_A3\"). ",
+      "Available columns: ",
+      paste(utils::head(names(data), 30), collapse = ", "),
+      call. = FALSE
+    )
+  }
+  if (!value_column %in% names(data)) {
+    stop(
+      "createmap(): value column '", value_column, "' is not in `data`. ",
+      "Available columns: ",
+      paste(utils::head(names(data), 30), collapse = ", "),
+      call. = FALSE
+    )
+  }
+
   # Load world map
   world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
 
@@ -90,25 +114,6 @@ createmap <- function(data = NULL,
 }
 
 
-#' Interactive Map of Under-5 Mortality Rate
-#'
-#' Displays a choropleth map of average under-5 mortality rates by country using
-#'  a yellow-red color scale.
-#'
-#' @param u5_mr A data frame with a `"Total"` column and ISO_A3-coded countries.
-#' @return A `leaflet` map object.
-#' @export
-createmap_u5mr_avg <- function(u5_mr = NULL) {
-  createmap(
-    data = u5_mr,
-    data_key = "REF_AREA",
-    value_column = "Total",
-    palette = "YlOrRd",
-    legend_title = "U5 Mortality Rate",
-    label_prefix = "Value:"
-  )
-}
-
 #' Interactive Map of DALY Rate
 #'
 #' Displays a choropleth map of DALY rates for all causes using a blue color
@@ -125,45 +130,6 @@ createmap_DALY_avg <- function(gbd_rates = NULL) {
     value_column = "All causes",
     palette = "YlGnBu",
     legend_title = "DALY Rate",
-    label_prefix = "Value:"
-  )
-}
-
-#' Interactive Map of Lack of Coping Capacity
-#'
-#' Displays a choropleth map of INFORM coping capacity scores using a green-blue
-#'  color scale.
-#'
-#' @param inform_cap A data frame with a `"capacity"` column and ISO3-coded
-#'  countries.
-#' @return A `leaflet` map object.
-#' @export
-createmap_cap_avg <- function(inform_cap = NULL) {
-  createmap(
-    data = inform_cap,
-    data_key = "iso3",
-    value_column = "capacity",
-    palette = "PuBuGn",
-    legend_title = "INFORM Lack of Coping Capacity",
-    label_prefix = "Value:"
-  )
-}
-
-#' Interactive Map of U5MR Intra-country Differences
-#'
-#' Displays a choropleth map of intra-country differences in under-5 mortality
-#'  rates using a viridis color scale.
-#'
-#' @param u5_mr A data frame with a `"did"` column and ISO_A3-coded countries.
-#' @return A `leaflet` map object.
-#' @export
-createmap_u5mr_did <- function(u5_mr = NULL) {
-  createmap(
-    data = u5_mr,
-    data_key = "REF_AREA",
-    value_column = "did",
-    palette = "viridis",
-    legend_title = "U5 Mortality Rate Intra-country Difference",
     label_prefix = "Value:"
   )
 }
@@ -341,25 +307,6 @@ createimg_bars <- function(data,
   return(p)
 }
 
-#' Under-5 Mortality Rate plot
-#'
-#' @param u5_mr Data with U5MR values
-#' @return A ggplot object
-#' @export
-createimg_u5mr_bars <- function(u5_mr = NULL) {
-  u5_mr <- dplyr::filter(u5_mr, if_all(everything(), ~ !is.na(.)))
-  createimg_bars(
-    data = u5_mr,
-    x_var = Total,
-    y_var = REF_AREA,
-    color_var = delta,
-    x_label = "Deaths per 1,000 live births",
-    y_label = "Country",
-    linerange =
-      list(xmin = rlang::sym("Lowest"), xmax = rlang::sym("Highest"))
-  )
-}
-
 #' DALY Rate plot
 #'
 #' @param gbd_rates Data with DALY values
@@ -386,7 +333,9 @@ createimg_cap_bars <- function(risk_score = NULL) {
     data = risk_score,
     x_var = capacity_score,
     y_var = country,
-    color_var = capacity,
+    # v4.00 coloured this by the raw INFORM "LACK OF COPING CAPACITY"
+    # aggregate, a different quantity from the score being plotted.
+    color_var = capacity_score,
     x_label = "Lack of Capacity score",
     y_label = "Country"
   )
@@ -438,7 +387,7 @@ createimg_risk_hist <- function(risk_score = NULL) {
   risk_score |>
     ggplot2::ggplot() +
     ggplot2::geom_histogram(
-      ggplot2::aes(overall_risk, color = risk)) +
+      ggplot2::aes(overall_risk, fill = ggplot2::after_stat(count))) +
     ggplot2::theme(
       legend.position = "none") +
     ggplot2::labs(x = "Health Risk Score")
@@ -578,38 +527,47 @@ create_lollipop_plot_shift <- function(risk_score,
 #' Vulnerability).
 #'
 #' @param df A data frame containing the variables to correlate.
+#' @param max_causes Maximum number of GBD cause columns to include. When the
+#'   extract carries more, the causes with the largest cross-country spread are
+#'   kept so the heatmap stays readable.
 #'
 #' @return A ggplot2 heatmap of the correlation matrix with group annotations.
 #' @export
-create_correlation_matrix_with_groups <- function(df) {
+create_correlation_matrix_with_groups <- function(df, max_causes = 12) {
+
+  # The GBD extract now carries all level-2 causes rather than a hard-coded
+  # ten, so the health block is derived from the data. Whichever causes were
+  # downloaded are the ones plotted.
+  cause_cols <- intersect(gbd_cause_columns(df), names(df))
+  if (length(cause_cols) > max_causes) {
+    # Keep the causes with the largest cross-country spread: a correlation
+    # heatmap with 20+ rows is unreadable.
+    spread <- vapply(df[, cause_cols, drop = FALSE],
+                     function(x) stats::sd(x, na.rm = TRUE), numeric(1))
+    cause_cols <- names(sort(spread, decreasing = TRUE))[seq_len(max_causes)]
+  }
+
+  health_vars <- c("hazard_score", "All causes", cause_cols)
 
   variables <- c(
-    "overall_risk", "severity_adjusted_risk", "hazard_score",
-    "Mental disorders", "Sexually transmitted infections",
-    "Respiratory infections and tuberculosis", "Enteric infections",
-    "All causes", "Neglected tropical diseases and malaria",
-    "Cardiovascular diseases", "Transport injuries", "Other injuries",
-    "Violence injuries", "Other NCDs", "vulnerability_score",
+    "overall_risk", "severity_adjusted_risk",
+    health_vars,
+    "vulnerability_score",
     "infrastructure", "adult_literacy", "vulnerable_groups",
     "soc_econ_vulnerability",
     "capacity_score", "governance", "financing", "resources", "services",
     "severity_index", "crisis_impact", "people_conditions", "crisis_complexity",
-    "severity_adjusted_risk_delta"
+    "severity_uplift"
   )
 
   group_list <- list(
-    Health = c("hazard_score", "Mental disorders",
-               "Sexually transmitted infections",
-               "Respiratory infections and tuberculosis", "Enteric infections",
-               "All causes", "Neglected tropical diseases and malaria",
-               "Cardiovascular diseases", "Transport injuries", "Other injuries",
-               "Violence injuries", "Other NCDs"),
+    Health = health_vars,
     Vulnerability = c("vulnerability_score", "infrastructure", "adult_literacy",
                       "vulnerable_groups", "soc_econ_vulnerability"),
     Capacity = c("capacity_score", "governance", "financing", "resources",
                  "services"),
     Crisis = c("severity_index", "crisis_impact", "people_conditions",
-               "crisis_complexity", "severity_adjusted_risk_delta")
+               "crisis_complexity", "severity_uplift")
   )
 
   group_colors <- c(
@@ -1040,9 +998,13 @@ create_disease_scatter <- function(data) {
 createmap_completeness <- function(db = NULL) {
   createmap(
     data = db,
+    data_key = "ISO_A3",
     value_column = "data_completeness",
+    # Low completeness reads as red, high as green: unlike the risk maps this
+    # palette is not reversed, because here a high value is the good outcome.
     palette = "RdYlGn",
-    legend_title = "Share of indicators present"
+    legend_title = "Share of indicators present",
+    label_prefix = "Completeness:"
   )
 }
 

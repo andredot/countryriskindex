@@ -8,7 +8,8 @@ prj_pkgs <- c("fs", "readr", "stringr", "purrr",
               "sf", "leaflet", "rnaturalearth", "rnaturalearthdata", "ggtext",
               "plotly", "irr", "reshape2", "skimr", "dplyr", "shiny", "fmsb",
               "viridis", "ggfortify", "ggdendro", "factoextra", "tibble",
-              'RColorBrewer', 'readxl', 'rlang', 'scales', 'stringi')
+              'RColorBrewer', 'readxl', 'rlang', 'scales', 'stringi',
+              "qs2")
 renv::install(prj_pkgs)
 purrr::walk(prj_pkgs, usethis::use_package)
 

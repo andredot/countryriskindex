@@ -5,52 +5,40 @@
 \title{Preprocess WHO Health Indicator Data}
 \usage{
 preprocess_who_data(
-  relay_may2023_wide = NULL,
   x9a706fd_all_latest = NULL,
-  x19e688d_all_latest = NULL,
   x217795a_all_latest = NULL,
-  b9c6c79_all_latest = NULL,
-  bbf3a64_all_latest = NULL,
-  d2a45a5_all_latest = NULL,
-  ed50112_all_latest = NULL,
   who_location_keys = NULL
 )
 }
 \arguments{
-\item{relay_may2023_wide}{WHO dataset on household health expenditure.}
+\item{x9a706fd_all_latest}{WHO dataset 9A706FD: UHC service coverage index.}
 
-\item{x9a706fd_all_latest}{WHO dataset on UHC coverage index.}
-
-\item{x19e688d_all_latest}{WHO dataset on antibiotic consumption.}
-
-\item{x217795a_all_latest}{WHO dataset on doctor density.}
-
-\item{b9c6c79_all_latest}{WHO dataset on government health expenditure.}
-
-\item{bbf3a64_all_latest}{WHO dataset on ODA to health.}
-
-\item{d2a45a5_all_latest}{WHO dataset on access to medicines.}
-
-\item{ed50112_all_latest}{WHO dataset on unsafe WASH deaths.}
+\item{x217795a_all_latest}{WHO dataset 217795A: density of doctors.}
 
 \item{who_location_keys}{Optional data frame with \code{GEO_NAME_SHORT} and
 \code{ISO_A3} for country code mapping.}
 }
 \value{
-A data frame with selected WHO health indicators by country.
+A data frame with one row per country and columns \code{country},
+\code{iso_a3}, \code{uhc_coverage}, \code{doctor_density}, and the reference year of each.
 }
 \description{
-Filters and joins multiple WHO datasets to extract the most recent values for
-selected indicators.
-The function:
+Extracts the two WHO indicators the index actually consumes:
 \itemize{
-\item Filters each dataset for country-level data and the most recent year.
-\item Applies additional filters for urbanization, sex, and AMR awareness
-where applicable.
-\item Renames each indicator column using the indicator name.
-\item Joins all datasets by country name.
-\item Optionally joins ISO A3 codes using a location key table.
-\item Returns a tidy data frame with one row per country and one column per
-indicator.
+\item \strong{9A706FD} - UHC service coverage index, feeding the
+\emph{financing} component of capacity.
+\item \strong{217795A} - density of doctors, feeding the \emph{resources}
+component of capacity.
 }
+}
+\details{
+Version 4.10 reduced this from eight datasets to two. Household health
+expenditure, antibiotic consumption, government health expenditure, ODA to
+health, access to essential medicines and unsafe-WASH deaths were all
+downloaded, parsed and joined, but no downstream function ever read them.
+They are no longer fetched: see \code{sources.md}.
+
+For each dataset the function filters to country-level records, takes the
+most recent year available per country, and renames the value column to the
+indicator name.
 }

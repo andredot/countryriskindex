@@ -43,6 +43,10 @@ utils::globalVariables(c(
   "Unsafe water, sanitation and hygiene services deaths", "Uprooted people",
   "VULNERABILITY", "Value", "Var1", "Var2", "Variable", "Violence injuries",
   "Wealth Quintile", "Cardiovascular diseases", "Other NCDs",
+  # v4.10
+  "cause_name", "cause_label", "cause_vars", "year_uhc", "year_doctors",
+  "DIM_TIME", "Country", "ISO3", "COUNTRY", "n_crises",
+  "severity_uplift", "overall_risk", "low_confidence", "data_completeness",
   "Ora di completamento", "Your Location",
 
   # Variables from countryriskindex functions

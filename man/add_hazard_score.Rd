@@ -4,16 +4,28 @@
 \alias{add_hazard_score}
 \title{Compute Hazard Score from GBD Rates}
 \usage{
-add_hazard_score(df)
+add_hazard_score(df, reference = NULL, method = c("quantile", "max"))
 }
 \arguments{
 \item{df}{A data frame containing a column named \code{"All causes"}.}
+
+\item{reference}{Optional reference quantile table from
+\code{\link[=compute_reference_quantiles]{compute_reference_quantiles()}}.}
+
+\item{method}{Either \code{"quantile"} (default) or \code{"max"} (deprecated v4.0
+behaviour, retained for comparison only).}
 }
 \value{
-The input data frame with an added column \code{hazard_score}.
+The input data frame with added columns \code{hazard_raw} and
+\code{hazard_score}.
 }
 \description{
-Calculates a normalized hazard score based on the "All causes" DALY rate from
-GBD data.
-The score is computed by dividing each value by the maximum observed value.
+Calculates a normalised hazard score from the "All causes" DALY rate.
+}
+\details{
+v4.0 divided by the observed maximum, which made every country's score
+hostage to a single extreme country and compressed the usable range to
+roughly \verb{[0.27, 1]}. v4.1 uses the same frozen quantile normalisation as the
+vulnerability and capacity components, so all three are on a common footing
+and the score is stable across releases.
 }

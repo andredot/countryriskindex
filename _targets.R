@@ -36,12 +36,17 @@ list(
                import_cm_matrix()),
 
   # GBD section
-  tar_target(gbd_data, get_input_data_path("GBD/IHME-GBD_2021_DALY.csv") |>
+  # GBD extract: DALYs, Rate, All ages, Both sexes, "All causes" + all level-2
+  # causes. See sources.md for the exact vizhub request. Bump gbd_year() in
+  # R/small_utils.R when a new round is downloaded.
+  tar_target(gbd_data, get_input_data_path(
+               paste0("GBD/IHME-GBD_", gbd_year(), "_DALY.csv")) |>
                import_data()),
   tar_target(haqi_data,
              get_input_data_path("GBD/HAQI/IHME_GBD_2019_HAQ_1990_2019_DATA_Y2022M012D21.csv") |>
                import_data()),
-  tar_target(location_keys, get_input_data_path("GBD/IHME_GBD_2021_location_keys.csv") |>
+  tar_target(location_keys, get_input_data_path(
+               paste0("GBD/IHME_GBD_", gbd_year(), "_location_keys.csv")) |>
                import_data()),
   tar_target(who_location_keys, get_input_data_path("WHO/WHO_loc_keys.xlsx") |>
                import_excel()),
@@ -55,38 +60,22 @@ list(
 
   # WHO section
   ## indicators
-  tar_target(relay_may2023_wide, get_input_data_path("WHO/RELAY_MAY2023_WIDE.csv") |>
-               import_data()),
   tar_target(x9a706fd_all_latest, get_input_data_path("WHO/9A706FD_ALL_LATEST.csv") |>
-               import_data()),
-  tar_target(x19e688d_all_latest, get_input_data_path("WHO/19E688D_ALL_LATEST.csv") |>
                import_data()),
   tar_target(x217795a_all_latest, get_input_data_path("WHO/217795A_ALL_LATEST.csv") |>
                import_data()),
-  tar_target(b9c6c79_all_latest, get_input_data_path("WHO/B9C6C79_ALL_LATEST.csv") |>
-               import_data()),
-  tar_target(bbf3a64_all_latest, get_input_data_path("WHO/BBF3A64_ALL_LATEST.csv") |>
-               import_data()),
-  tar_target(d2a45a5_all_latest, get_input_data_path("WHO/D2A45A5_ALL_LATEST.csv") |>
-               import_data()),
-  tar_target(ed50112_all_latest, get_input_data_path("WHO/ED50112_ALL_LATEST.csv") |>
-               import_data()),
-  tar_target(who_indicators, preprocess_who_data( relay_may2023_wide,
-                                                  x9a706fd_all_latest,
-                                                  x19e688d_all_latest,
-                                                  x217795a_all_latest,
-                                                  b9c6c79_all_latest,
-                                                  bbf3a64_all_latest,
-                                                  d2a45a5_all_latest,
-                                                  ed50112_all_latest,
-                                                  who_location_keys)),
+  # Only two WHO indicators are consumed by the index (see sources.md):
+  # 9A706FD (UHC service coverage) and 217795A (density of doctors).
+  tar_target(who_indicators, preprocess_who_data(x9a706fd_all_latest,
+                                                 x217795a_all_latest,
+                                                 who_location_keys)),
   # EU INFORM section
-  tar_target(inform_risk_path, get_input_data_path("EU/INFORM_Risk_2025_v070.xlsx")),
+  tar_target(inform_risk_path, get_input_data_path("EU/INFORM_Risk_Mid_2025_v071.xlsx")),
   tar_target(inform_risk_data, import_inform_excel(inform_risk_path)),
   tar_target(inform_lcc_data, import_inform_excel(inform_risk_path, sheet = 5)),
   tar_target(inform_cap, preprocess_inform(inform_risk_data, inform_lcc_data)),
 
-  tar_target(inform_severity_path, get_input_data_path("EU/INFORM_Severity_March_2025.xlsx")),
+  tar_target(inform_severity_path, get_input_data_path("EU/202512_inform_severity_mid_december_2025.xlsx")),
   tar_target(inform_severity_data, import_severity_excel(inform_severity_path)),
   tar_target(inform_severity, preprocess_severity(inform_severity_data)),
   tar_target(map_sev_score, createmap_severity_score(risk_score)),
@@ -175,8 +164,8 @@ list(
 
   # QUARTO DOCUMENTS and REPORT
   tar_quarto(report, here::here("reports/report.qmd")),
-  tar_quarto(vul_cap_components, here::here("reports/vulcomb.qmd")),
-  tar_quarto(disease_clustering, here::here("reports/disease_clustering.qmd")),
+  # tar_quarto(vul_cap_components, here::here("reports/vulcomb.qmd")),
+  # tar_quarto(disease_clustering, here::here("reports/disease_clustering.qmd")),
 
   # SHINY APP
   tar_target(shiny_explorer,

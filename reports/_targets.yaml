@@ -1,4 +1,3 @@
 main:
-  script: C:/R/countryriskindex/_targets.R
-  store: G:/siemel/Sistema di gestione Salute/ICR rischio/Country Risk Profile Index
-    X4/_targets
+  script: C:/Users/andre/OneDrive/Documenti/R/countryriskindex/_targets.R
+  store: C:/Users/andre/OneDrive/Documenti/Country Health Risk Data/_targets

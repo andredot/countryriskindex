@@ -14,3 +14,12 @@ countryriskindex.Rcheck/
 countryriskindex*.tar.gz
 countryriskindex*.tgz
 renv/
+*.patch
+
+*.png
+
+*.html
+
+reports/disease_clustering_files/
+
+reports/vulcomb_files/

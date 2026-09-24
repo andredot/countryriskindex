@@ -95,28 +95,87 @@ merge_health_datasets <- function(gbd_rates,
 #' @return A normalized data frame with radar-specific indicators and a `Country`
 #'  column.
 #' @export
-extract_radar_data <- function(df) {
-  df |>
-    dplyr::transmute(
-      `Country` = country,
-      `Communicable diseases` =  `Sexually transmitted infections` +
-        `Respiratory infections and tuberculosis` +
-        `Enteric infections`  + `Neglected tropical diseases and malaria`,
-      # `Non communicable diseases` = `Mental disorders` +
-      # `Cardiovascular diseases` + `Other NCDs`,
-      `Traumatic/Violent injuries` = `Other injuries` + `Transport injuries` +
-        `Violence injuries`,
-      `WASH` = improved_water + improved_sanitation,
-      # `Environmental` = missing,
-      `Capacity` = capacity_score,
-      `Vulnerability` = vulnerability_score
-    ) |>
-    dplyr::mutate(
-      dplyr::across(
-        .cols = -Country,
-        .fns = ~ .x / max(.x, na.rm = TRUE)
+extract_radar_data <- function(df, cause_groups = default_cause_groups()) {
+
+  sum_present <- function(data, cols, label) {
+    present <- intersect(cols, names(data))
+    absent <- setdiff(cols, names(data))
+    if (length(absent) > 0) {
+      warning(
+        "extract_radar_data(): causes not found in the GBD extract and ",
+        "omitted from '", label, "': ", paste(absent, collapse = ", "),
+        call. = FALSE
       )
+    }
+    if (length(present) == 0) {
+      return(rep(NA_real_, nrow(data)))
+    }
+    rowSums(as.matrix(data[, present, drop = FALSE]), na.rm = TRUE)
+  }
+
+  out <- tibble::tibble(
+    Country = df[["country"]],
+    `Communicable diseases` = sum_present(df, cause_groups$communicable,
+                                          "Communicable diseases"),
+    `Traumatic/Violent injuries` = sum_present(df, cause_groups$injuries,
+                                               "Traumatic/Violent injuries"),
+    WASH = rowMeans(
+      cbind(df[["improved_water"]], df[["improved_sanitation"]]),
+      na.rm = TRUE
+    ),
+    Capacity = df[["capacity_score"]],
+    Vulnerability = df[["vulnerability_score"]]
+  )
+
+  dplyr::mutate(
+    out,
+    dplyr::across(
+      .cols = -Country,
+      .fns = function(x) {
+        m <- suppressWarnings(max(x, na.rm = TRUE))
+        if (!is.finite(m) || m == 0) x else x / m
+      }
     )
+  )
+}
+
+#' Default GBD cause groupings for the radar chart
+#'
+#' Maps level-2 GBD cause names onto the thematic channels used by the radar
+#' chart and the crisis modifier matrix. Causes absent from the extract are
+#' skipped with a warning rather than causing an error, so the grouping survives
+#' GBD renaming causes between rounds.
+#'
+#' @return A named list of character vectors.
+#' @export
+default_cause_groups <- function() {
+  list(
+    communicable = c(
+      "Respiratory infections and tuberculosis",
+      "Enteric infections",
+      "Neglected tropical diseases and malaria",
+      "Sexually transmitted infections",
+      "HIV/AIDS and sexually transmitted infections",
+      "Other infectious diseases"
+    ),
+    injuries = c(
+      "Transport injuries",
+      "Unintentional injuries",
+      "Self-harm and interpersonal violence",
+      "Violence injuries",
+      "Other injuries"
+    ),
+    noncommunicable = c(
+      "Cardiovascular diseases",
+      "Neoplasms",
+      "Chronic respiratory diseases",
+      "Diabetes and kidney diseases",
+      "Mental disorders",
+      "Substance use disorders",
+      "Digestive diseases",
+      "Neurological disorders"
+    )
+  )
 }
 
 #' Adjust Radar Data Using Crisis Modifier Drivers
@@ -160,8 +219,13 @@ update_risk_with_cm <- function(cm_data, risk_score, radar_data) {
       operating_environment,
       `Society and safety`,
       dplyr::starts_with("Driver"),
-      dplyr::matches("infections|malaria"),
-      `Other injuries`, `Transport injuries`, `Violence injuries`,
+      # Cause columns are matched, not named: the GBD extract now carries all
+      # level-2 causes, whose names differ from the ten v4.00 hard-coded (for
+      # instance "Self-harm and interpersonal violence" rather than "Violence
+      # injuries"). dplyr::any_of()/matches() tolerate an absent cause instead
+      # of erroring, which is what we want when GBD renames one.
+      dplyr::matches("infections|malaria|tuberculosis"),
+      dplyr::matches("injur|violence|self-harm"),
       improved_water, improved_sanitation,
       capacity_score,
       vulnerability_score

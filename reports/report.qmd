@@ -7,9 +7,6 @@ author:
     affiliation: School of Public Health, University of Milan
     affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
     orcid: "0000-0001-7050-1378"
-  - name: Adriana Tomoiaga
-    affiliation: School of Public Health, University of Milan
-    affiliation-url: https://www.unimi.it/it/corsi/corsi-post-laurea-e-formazione-continua/catalogo-scuole-di-specializzazione/aa-2023/2024-scuola-di-specializzazione-igiene-e-medicina-preventiva
   - name: Alessia Giorgini
     affiliation: SAIPEM
     affiliation-url: https://www.saipem.com/it
@@ -17,7 +14,6 @@ author:
     affiliation: SAIPEM
     affiliation-url: https://www.saipem.com/it
 date: "`r Sys.Date()`"
-bibliography: biblio.bib
 preview: man/img/Logo_Saipem.png
 execute: 
   echo: false
@@ -117,6 +113,10 @@ Version 4.10 does not change the conceptual framework. It corrects five behaviou
 - **Thin evidence bases are flagged rather than hidden.** Countries whose score rests on too few underlying indicators are marked `low_confidence` and their completeness is published alongside the score.
 - **Validation is extended with a dimensionality check.** The correlation matrix shows whether indicators capture similar or different things; a principal component analysis now also shows how many independent dimensions the index is actually measuring.
 
+**Inputs have been reduced to those the pipeline actually uses.** Several datasets were being downloaded, parsed and joined without any downstream function reading them: six of the eight WHO indicator files, the UN IGME under-5 mortality extract, and the INFORM headline aggregates. These are no longer fetched, and `sources.md` is now the authoritative list of what must be refreshed. Only two WHO indicators reach the index — UHC service coverage and density of doctors, both in the capacity component.
+
+The GBD extract has also changed shape. Version 4.00 selected ten causes by hard-coded identifier and built an "Other NCDs" aggregate from ten more; both were fragile across GBD rounds and arbitrary in composition. The request is now "All causes" plus all level-2 causes, and the pipeline pivots whatever causes the file contains rather than naming them in code. Only the all-cause rate feeds the hazard score; the level-2 causes drive the radar decomposition and the correlation matrix, where they show which burdens dominate in a given country.
+
 Two changes to scope: the legacy CRPI spreadsheets are no longer imported, and comparisons are made against the previous run of this pipeline instead. Site-level proximity adjustment is unchanged in this release and is scheduled for revision separately.
 
 ## Methods
@@ -126,8 +126,6 @@ Two changes to scope: the legacy CRPI spreadsheets are no longer imported, and c
 The flowchart provides a comprehensive overview of the methodology used to construct the Country Health Risk Index. It outlines the integration of multiple data sources—including the Global Burden of Disease (GBD) for risk factors, WHO and EU JRC INFORM indices for the other components (Proximity adjustment not shown).
 
 Data from these input sources are transformed into standardized indicators through processes such as rate calculation and log-transformation. The final index is computed as the geometric mean of its core components, offering a balanced representation of health risk across countries. The results are then visualized using maps, radar and scatter plots to facilitate interpretation and comparison.
-
-![Data flow from input sources (cilynders) to final products)](images/Schema_CHRI_v2.png){fig-align="center"}
 
 The analytical workflow was implemented using the R 4.5 programming language. Data manipulation and cleaning were conducted using the `tidyverse` suite of packages, while `ggplot2` and `plotly` were employed to generate both static and interactive visualizations. Geospatial visualizations were supported through the use of `leaflet` and `rnaturalearth` for mapping. The project structure was based on a reproducible template incorporating `renv` for dependency management and `targets` for pipeline orchestration. Final outputs and documentation were rendered using `Quarto`, ensuring consistency, transparency, and reproducibility throughout the analytical process.
 
@@ -522,7 +520,7 @@ The index has no external criterion against which it has been validated. The ana
 
 No uncertainty or sensitivity analysis is performed. The scores are point estimates, and the effect of plausible alternative choices of normalisation, aggregation and weighting on country rankings is not quantified.
 
-Input vintages are heterogeneous. The HAQI component derives from GBD 2019, and the WHO indicators use the most recent year available per country, which differs systematically between well-measured and poorly-measured countries.
+Input vintages are heterogeneous. The HAQI component derives from GBD 2019 and has no regular update cycle, making it the oldest input in the index. The WHO indicators use the most recent year available per country, which differs systematically between well-measured and poorly-measured countries; the reference years are retained in the data (`year_uhc`, `year_doctors`) so the spread can be inspected rather than assumed away.
 
 Crisis severity is applied at national level, so a geographically limited crisis affects the whole country's score. The driver routing and bounded adjustment substantially reduce the magnitude of this distortion but do not remove its cause; sub-national scoping is deferred to a subsequent release.
 

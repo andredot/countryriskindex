@@ -4,29 +4,41 @@
 \alias{add_capacity_score}
 \title{Compute Health System Capacity Score}
 \usage{
-add_capacity_score(df)
+add_capacity_score(df, reference = NULL, min_n = 3)
 }
 \arguments{
 \item{df}{A data frame with the required columns for capacity computation.}
+
+\item{reference}{Optional reference quantile table from
+\code{\link[=compute_reference_quantiles]{compute_reference_quantiles()}}.}
+
+\item{min_n}{Minimum number of non-missing sub-components required.}
 }
 \value{
 The input data frame with added columns:
 \itemize{
 \item \code{governance}, \code{financing}, \code{resources}, \code{services}
-\item \code{capacity_score} — normalized composite score.
+\item \code{capacity_score} - normalised composite score.
 }
 }
 \description{
-Calculates a composite health system capacity score using four components:
+Calculates a composite health system capacity score using four components
+aligned to the HSPA framework:
 \itemize{
-\item \strong{Governance}: Inverted \code{gov_effectivess} (scaled from
-0–10 to 0–100).
+\item \strong{Governance}: Inverted \code{gov_effectivess} (0-10 rescaled
+to 0-100).
 \item \strong{Financing}: Average of \code{uhc_coverage} and inverted
-\code{health_per_capita} (scaled to 0–100).
-\item \strong{Resources}: \code{doctor_density}.
+\code{health_per_capita} (rescaled to 0-100).
+\item \strong{Resources}: \code{doctor_density}, normalised to 0-100.
 \item \strong{Services}: \code{haqi}.
 }
 }
 \details{
-The final score is the normalized geometric mean of the four components.
+In v4.0 \code{resources} was the raw WHO physicians-per-10,000 figure, spanning
+roughly 0.1 to 85 while the other three components spanned 0-100. Inside a
+geometric mean the relevant quantity is spread in log space, where the raw
+density carried about four times the influence of the other three combined
+and countries near zero drove the aggregate on their own. v4.1 normalises it
+onto the same 0-100 scale, on a log axis because the distribution is heavily
+right-skewed.
 }

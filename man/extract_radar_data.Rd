@@ -4,7 +4,7 @@
 \alias{extract_radar_data}
 \title{Extract Radar Data for Selected Health Indicators}
 \usage{
-extract_radar_data(df)
+extract_radar_data(df, cause_groups = default_cause_groups())
 }
 \arguments{
 \item{df}{A data frame with health and risk indicators, including a \code{country}

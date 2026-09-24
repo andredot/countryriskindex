@@ -50,22 +50,35 @@ import_excel <- function(.data_path) {
 }
 
 
-#' Pick a column by name with a range assertion
+#' Pick a column by name, disambiguating duplicates by expected range
 #'
 #' `readxl` disambiguates duplicated headers positionally, producing names like
-#' `Road density...16`. Selecting those by their positional suffix is fragile:
-#' if the source workbook gains or loses a column, a different variable is
-#' silently picked up and the index changes for reasons nobody can trace.
+#' `Road density...15` and `Road density...16`. Selecting by positional suffix
+#' is fragile: if the source workbook gains or loses a column, a different
+#' variable is silently picked up and the index changes for reasons nobody can
+#' trace.
 #'
-#' This helper selects by *prefix* instead, requires the match to be
-#' unambiguous, and asserts that the values fall in the expected range - so a
-#' layout change fails loudly at import rather than quietly at interpretation.
+#' The INFORM Lack of Coping Capacity sheet carries road density twice - once as
+#' the raw value (roughly 1 to 850 km per unit area) and once as the normalised
+#' INFORM 0-10 score. The two are cleanly separable by range, so this function
+#' selects the candidate that *satisfies the contract* rather than the first or
+#' last one. That is stable across workbook revisions in a way that a position
+#' is not.
+#'
+#' Resolution order:
+#' \enumerate{
+#'   \item Collect columns whose name is `prefix` or `prefix...N`.
+#'   \item If `range` is supplied, keep only candidates whose observed values
+#'     fall inside it.
+#'   \item Exactly one survivor: use it. None: error, reporting each
+#'     candidate's observed range. Several: prefer an exact name match, and
+#'     otherwise error as ambiguous.
+#' }
 #'
 #' @param df A data frame.
 #' @param prefix The column name, or the stem of a positionally-suffixed name.
 #' @param range Numeric length-2 vector giving the plausible `c(min, max)`.
-#' @param which If several columns share the prefix, which to take: `"first"`,
-#'   `"last"`, or an integer index. Defaults to `"first"`, and warns.
+#'   Strongly recommended: it is what makes the selection stable.
 #' @param required Whether a missing column is an error (`TRUE`) or returns
 #'   `NA` (`FALSE`).
 #'
@@ -73,16 +86,19 @@ import_excel <- function(.data_path) {
 #' @export
 #'
 #' @examples
-#' d <- data.frame(`Road density...16` = c(1, 5), check.names = FALSE)
+#' d <- data.frame(
+#'   `Road density...15` = c(1.5, 844),   # raw
+#'   `Road density...16` = c(0.2, 9.8),   # INFORM 0-10 score
+#'   check.names = FALSE
+#' )
 #' pick_column(d, "Road density", range = c(0, 10))
-pick_column <- function(df, prefix, range = NULL, which = "first",
-                        required = TRUE) {
+pick_column <- function(df, prefix, range = NULL, required = TRUE) {
 
   exact <- which(names(df) == prefix)
   suffixed <- grep(paste0("^", prefix, "\\.\\.\\.[0-9]+$"), names(df))
-  idx <- if (length(exact) > 0) exact else suffixed
+  candidates <- union(exact, suffixed)
 
-  if (length(idx) == 0) {
+  if (length(candidates) == 0) {
     if (required) {
       stop("pick_column(): no column matching '", prefix, "'. Available: ",
            paste(utils::head(names(df), 40), collapse = ", "),
@@ -91,38 +107,71 @@ pick_column <- function(df, prefix, range = NULL, which = "first",
     return(rep(NA_real_, nrow(df)))
   }
 
-  if (length(idx) > 1) {
-    chosen <- switch(
-      as.character(which),
-      "first" = idx[1],
-      "last"  = idx[length(idx)],
-      idx[as.integer(which)]
-    )
-    warning(
-      "pick_column(): '", prefix, "' matches ", length(idx), " columns (",
-      paste(names(df)[idx], collapse = ", "), "); taking '",
-      names(df)[chosen], "'. Check the source workbook layout.",
-      call. = FALSE
-    )
-    idx <- chosen
+  as_num <- function(i) suppressWarnings(as.numeric(df[[i]]))
+  obs_range <- function(i) {
+    x <- as_num(i)
+    if (all(is.na(x))) c(NA_real_, NA_real_) else range(x, na.rm = TRUE)
   }
 
-  x <- suppressWarnings(as.numeric(df[[idx]]))
+  if (is.null(range)) {
+    if (length(candidates) > 1) {
+      warning(
+        "pick_column(): '", prefix, "' matches ", length(candidates),
+        " columns (", paste(names(df)[candidates], collapse = ", "),
+        ") and no `range` was given to disambiguate; taking '",
+        names(df)[candidates[1]], "'.",
+        call. = FALSE
+      )
+    }
+    return(as_num(candidates[1]))
+  }
 
-  if (!is.null(range)) {
-    observed <- range(x, na.rm = TRUE)
-    if (all(is.finite(observed)) &&
-          (observed[1] < range[1] || observed[2] > range[2])) {
+  fits <- vapply(candidates, function(i) {
+    r <- obs_range(i)
+    all(is.finite(r)) && r[1] >= range[1] && r[2] <= range[2]
+  }, logical(1))
+
+  describe <- function(idx) {
+    paste(vapply(idx, function(i) {
+      r <- obs_range(i)
+      paste0("'", names(df)[i], "' [", signif(r[1], 4), ", ",
+             signif(r[2], 4), "]")
+    }, character(1)), collapse = "; ")
+  }
+
+  if (!any(fits)) {
+    stop(
+      "pick_column(): no column matching '", prefix, "' has values within [",
+      range[1], ", ", range[2], "]. Candidates: ", describe(candidates),
+      ". The source workbook layout has probably changed, or a raw indicator ",
+      "is present where a normalised score was expected.",
+      call. = FALSE
+    )
+  }
+
+  chosen <- candidates[fits]
+
+  if (length(chosen) > 1) {
+    exact_fit <- intersect(chosen, exact)
+    if (length(exact_fit) == 1) {
+      chosen <- exact_fit
+    } else {
       stop(
-        "pick_column(): '", names(df)[idx], "' has range [",
-        signif(observed[1], 4), ", ", signif(observed[2], 4),
-        "] but [", range[1], ", ", range[2], "] was expected. ",
-        "The source workbook layout has probably changed, or a raw indicator ",
-        "is being read where a normalised 0-10 score was intended.",
+        "pick_column(): '", prefix, "' is ambiguous - ", length(chosen),
+        " columns fall within [", range[1], ", ", range[2], "]: ",
+        describe(chosen), ". Tighten `range` or rename the source columns.",
         call. = FALSE
       )
     }
   }
 
-  x
+  if (length(candidates) > 1) {
+    message(
+      "pick_column(): '", prefix, "' matched ", length(candidates),
+      " columns; selected '", names(df)[chosen],
+      "' as the only one within [", range[1], ", ", range[2], "]."
+    )
+  }
+
+  as_num(chosen)
 }

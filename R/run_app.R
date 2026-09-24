@@ -49,14 +49,14 @@ run_app <- function(raw_data,
     server = function(input, output) {
       output$lollipopPlot <- shiny::renderPlot({
         # Define variable groups in desired order
+        # Cause columns are derived from the data: the GBD extract now carries
+        # all level-2 causes, so hard-coding a list would silently drop
+        # whichever causes GBD renames between rounds.
+        cause_vars <- intersect(gbd_cause_columns(raw_data), names(raw_data))
+
         ordered_vars <- c(
           "overall_risk", "severity_adjusted_risk",
-          "hazard_score",
-          "Mental disorders", "Sexually transmitted infections",
-          "Respiratory infections and tuberculosis", "Enteric infections",
-          "All causes", "Neglected tropical diseases and malaria",
-          "Cardiovascular diseases", "Transport injuries", "Other injuries",
-          "Violence injuries", "Other NCDs",
+          "hazard_score", "All causes", cause_vars,
           "vulnerability_score",
           "infrastructure", "adult_literacy", "vulnerable_groups",
           "soc_econ_vulnerability",
@@ -96,12 +96,8 @@ run_app <- function(raw_data,
               Variable == "overall_risk" ~ "lightblue",
               Variable == "severity_adjusted_risk" ~ "deepskyblue",
               Variable == "hazard_score" ~ "darkorange",
-              Variable %in% c(
-                "Mental disorders", "Sexually transmitted infections",
-                "Respiratory infections and tuberculosis", "Enteric infections",
-                "All causes", "Neglected tropical diseases and malaria",
-                "Cardiovascular diseases", "Transport injuries", "Other injuries",
-                "Violence injuries", "Other NCDs") ~ scales::alpha("orange", 0.67),
+              Variable %in% c("All causes", cause_vars) ~
+                scales::alpha("orange", 0.67),
               Variable == "vulnerability_score" ~ "darkblue",
               Variable %in% c(
                 "infrastructure", "adult_literacy", "vulnerable_groups",

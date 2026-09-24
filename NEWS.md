@@ -1,5 +1,55 @@
 # countryriskindex 0.2.0 (index version 4.10)
 
+## Input sources reduced to those actually used
+
+The pipeline downloaded and parsed a number of inputs that no downstream
+function ever read. `sources.md` is now the authoritative list, and everything
+in it is consumed.
+
+* **WHO: eight datasets to two.** Only `9A706FD` (UHC service coverage) and
+  `217795A` (density of doctors) reach the index, both via the capacity
+  component. Household health expenditure, antibiotic consumption, government
+  health expenditure, ODA to health, access to essential medicines and
+  unsafe-WASH deaths are no longer fetched. `preprocess_who_data()` now takes
+  three arguments instead of nine.
+* `preprocess_who_data()` additionally returns `year_uhc` and `year_doctors`.
+  WHO's "most recent year available" differs systematically between well- and
+  poorly-measured countries, and that vintage should be visible.
+* **UN IGME under-5 mortality removed.** `preprocess_u5mr()`,
+  `createmap_u5mr_avg()`, `createmap_u5mr_did()` and `createimg_u5mr_bars()`
+  are gone: the source is not in `sources.md` and had no pipeline targets.
+* **INFORM headline aggregates removed.** `preprocess_inform()` no longer
+  extracts INFORM Risk, Hazard & Exposure, Vulnerability, Lack of Coping
+  Capacity or Lack of Reliability. `createmap_cap_avg()` is removed with them.
+* `createimg_cap_bars()` coloured `capacity_score` by the raw INFORM coping
+  capacity aggregate, and `createimg_risk_hist()` coloured `overall_risk` by
+  raw INFORM risk. Both now use the computed score, which is what is being
+  plotted.
+
+## GBD extract: all level-2 causes, no hard-coded IDs
+
+* `preprocess_gbd_rates_by_cause()` previously selected ten causes by
+  hard-coded `cause_id` and built an "Other NCDs" aggregate from ten more.
+  Both were fragile across GBD rounds and arbitrary in composition. It now
+  pivots on `cause_name` and keeps whatever causes the extract contains, per
+  the "All causes + all level-2 causes" request in `sources.md`.
+* A missing "All causes" column is now a hard error naming the causes found,
+  rather than a downstream `NA`.
+* Duplicated country-cause rows (from leaving more than one year, sex or age
+  group in the download) are averaged with a warning instead of silently
+  producing list columns.
+* New `gbd_cause_columns()` derives the cause set from the data. The radar
+  chart, correlation matrix and Shiny explorer use it instead of hard-coded
+  lists, so they adapt when GBD renames a cause.
+* New `default_cause_groups()` maps level-2 causes onto the radar channels;
+  causes absent from the extract are skipped with a warning.
+* `create_correlation_matrix_with_groups()` gains `max_causes` (default 12) and
+  keeps the causes with the largest cross-country spread, since a heatmap with
+  20+ cause rows is unreadable.
+* New `gbd_year()` holds the GBD round in one place; both input paths derive
+  from it. Currently `"2023"`.
+
+
 Corrective release. The conceptual framework is unchanged; five behaviours in
 the implementation that were distorting results have been fixed, and the
 diagnostics needed to detect their recurrence have been added.
@@ -77,9 +127,13 @@ diagnostics needed to detect their recurrence have been added.
   for driver flags). The severity join in `merge_health_datasets()` asserts
   `relationship = "one-to-one"` so silent row duplication fails loudly.
 * `pick_column()` replaces positional column selection such as
-  `Road density...16`. It matches by prefix, requires an unambiguous match, and
-  asserts the expected value range, so a workbook layout change fails at import
-  rather than quietly at interpretation.
+  `Road density...16`. The INFORM Lack of Coping Capacity sheet carries road
+  density twice - raw (roughly 1 to 850) and as the normalised INFORM 0-10
+  score - so the function selects the candidate whose observed values satisfy
+  the expected range rather than the first or last match. That is stable across
+  workbook revisions in a way a column position is not. When no candidate fits,
+  or several do, it errors and reports each candidate's observed range instead
+  of guessing.
 
 ## Validation
 

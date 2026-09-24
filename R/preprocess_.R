@@ -1,134 +1,3 @@
-#' Preprocess Under-5 Mortality Rate Data
-#'
-#' Filters and processes under-five mortality rate data from the UN IGME
-#' database.
-#' The function:
-#' \itemize{
-#'   \item Filters for total population, valid observation status, and relevant
-#'    wealth quintiles.
-#'   \item Removes unnecessary metadata columns.
-#'   \item Selects the most recent observation per country and wealth quintile.
-#'   \item Calculates the difference in mortality between the highest and lowest
-#'    wealth quintiles.
-#'   \item Normalizes this disparity using quantile normalization.
-#'   \item Filters out aggregate or non-country entries based on REF_AREA codes.
-#' }
-#'
-#' @param db A data frame containing UN IGME under-five mortality rate data.
-#'
-#' @return A data frame with country-level under-five mortality disparities and
-#' normalized indicators.
-#' @export
-preprocess_u5mr <- function(db = NULL) {
-  db |>
-    dplyr::filter(
-      Indicator == "Under-five mortality rate",
-      Sex == "Total",
-      `Observation Status` %in% c("Normal value", "Included in IGME"),
-      `Wealth Quintile` %in% c("Total", "Lowest","Highest"),
-      !is.na(`Observation Value`)
-    ) |>
-    dplyr::select(
-      -`Regional group`,
-      -tidyselect::starts_with("Series"),
-      -`Age Group of Women`,
-      -`Time Since First Birth`,
-      -`Definition`,
-      -`Interval`,
-      -`Indicator`,
-      -`Sex`,
-      -`Observation Status`,
-      -`Unit of measure`
-    ) |>
-    dplyr::group_by(REF_AREA, `Wealth Quintile`) |>
-    dplyr::slice_max(`Reference Date`, n = 1) |>
-    dplyr::summarise(
-      Country = dplyr::first(`Geographic area`),
-      value = mean(`Observation Value`, na.rm = TRUE),
-      .groups = "drop"
-    ) |>
-    tidyr::pivot_wider(
-      names_from = `Wealth Quintile`,
-      values_from = value
-    ) |>
-    dplyr::mutate(
-      delta_diff = `Highest` - `Lowest`,
-      did = delta_diff/mean(delta_diff, na.rm = TRUE),
-      delta = normalise_quantiles(delta_diff)
-    ) |>
-    dplyr::filter(
-      !stringr::str_starts(REF_AREA, "UNICEF"),
-      !stringr::str_starts(REF_AREA, "UNSDG"),
-      !stringr::str_starts(REF_AREA, "WB"),
-      !stringr::str_starts(REF_AREA, "WORLD")
-    )
-}
-
-#' Preprocess GBD DALY Rates by Cause
-#'
-#' Processes Global Burden of Disease (GBD) DALY data to extract
-#' disease-specific rates.
-#' The function:
-#' \itemize{
-#'   \item Maps GBD location IDs to ISO A3 codes.
-#'   \item Filters for selected cause IDs and reshapes the data to wide format.
-#'   \item Computes a composite "Other NCDs" category by summing DALYs for a
-#'   predefined set of causes.
-#'   \item Merges the selected causes and the composite category into a single
-#'    data frame.
-#' }
-#'
-#' @param db A data frame with GBD DALY data including `location_id`,
-#'  `cause_id`, and `val`.
-#' @param loc_keys A data frame mapping `Location ID` to `ISO_A3` codes.
-#'
-#' @return A data frame with DALY rates by cause for each country.
-#' @export
-preprocess_gbd_rates_by_cause <- function(db = NULL,
-                                          loc_keys = NULL) {
-  if (is.null(db)) stop(
-    "The 'db' argument is NULL. Please provide a valid data frame.")
-  if (is.null(loc_keys)) stop(
-    "The 'loc_keys' argument is NULL. Please provide a valid data frame.")
-
-  # Define cause IDs and labels
-  selected_causes <- c(
-    "294" = "All causes",
-    "956" = "Respiratory infections and tuberculosis",
-    "957" = "Enteric infections",
-    "344" = "Neglected tropical diseases and malaria",
-    "955" = "Sexually transmitted infections",
-    "491" = "Cardiovascular diseases",
-    "558" = "Mental disorders",
-    "688" = "Transport injuries",
-    "717" = "Violence injuries",
-    "696" = "Other injuries"
-  )
-
-  other_ncd_ids <- c(410, 508, 526, 542, 973, 974, 653, 669, 626, 640)
-
-  # Prepare base data
-  base <- loc_keys |>
-    dplyr::select(`Location ID`, ISO_A3) |>
-    dplyr::right_join(db, by = c("Location ID" = "location_id"))
-
-  # Extract selected causes
-  selected <- base |>
-    dplyr::filter(cause_id %in% as.numeric(names(selected_causes))) |>
-    dplyr::mutate(cause_label = selected_causes[as.character(cause_id)]) |>
-    dplyr::select(location_name, ISO_A3, cause_label, val) |>
-    tidyr::pivot_wider(names_from = cause_label, values_from = val)
-
-  # Compute Other NCDs
-  other_ncds <- base |>
-    dplyr::filter(cause_id %in% other_ncd_ids) |>
-    dplyr::group_by(location_name, ISO_A3) |>
-    dplyr::summarise(`Other NCDs` = sum(val, na.rm = TRUE), .groups = "drop")
-
-  # Combine and return
-  dplyr::left_join(selected, other_ncds, by = c("location_name", "ISO_A3"))
-}
-
 #' Preprocess HAQ Index Data
 #'
 #' Extracts the most recent Healthcare Access and Quality (HAQ) Index value per
@@ -195,11 +64,11 @@ preprocess_inform <- function(db_risk = NULL,
     dplyr::transmute(
       country = `COUNTRY`,
       iso3 = `ISO3`,
-      risk = as.double(`INFORM RISK`),
-      hazard = as.double(`HAZARD & EXPOSURE`),
-      vulnerability = as.double(`VULNERABILITY`),
-      capacity = as.double(`LACK OF COPING CAPACITY`),
-      reliability = as.double(`Lack of Reliability (*)`),
+      # NOTE: the INFORM headline aggregates (INFORM RISK, HAZARD & EXPOSURE,
+      # VULNERABILITY, LACK OF COPING CAPACITY) and Lack of Reliability are no
+      # longer extracted. None was read by any downstream function; the two
+      # plots that referenced them coloured a computed score by an unrelated
+      # external aggregate, which was misleading rather than informative.
       soc_econ_vulnerability = as.double(`Socio-Economic Vulnerability`),# 23-28
       connectivity = as.double(`Physical infrastructure`),               # 48-50
       uprooted = as.double(`Uprooted people`),                           # 29-30
@@ -237,113 +106,6 @@ preprocess_inform <- function(db_risk = NULL,
   )
 
   dplyr::left_join(db_risk, db_lcc, by = setNames("iso3", "iso3"))
-}
-
-#' Preprocess WHO Health Indicator Data
-#'
-#' Filters and joins multiple WHO datasets to extract the most recent values for
-#'  selected indicators.
-#' The function:
-#' \itemize{
-#'   \item Filters each dataset for country-level data and the most recent year.
-#'   \item Applies additional filters for urbanization, sex, and AMR awareness
-#'    where applicable.
-#'   \item Renames each indicator column using the indicator name.
-#'   \item Joins all datasets by country name.
-#'   \item Optionally joins ISO A3 codes using a location key table.
-#'   \item Returns a tidy data frame with one row per country and one column per
-#'    indicator.
-#' }
-#'
-#' @param who_location_keys Optional data frame with `GEO_NAME_SHORT` and
-#' `ISO_A3` for country code mapping.
-#' @param relay_may2023_wide WHO dataset on household health expenditure.
-#' @param x9a706fd_all_latest WHO dataset on UHC coverage index.
-#' @param x19e688d_all_latest WHO dataset on antibiotic consumption.
-#' @param x217795a_all_latest WHO dataset on doctor density.
-#' @param b9c6c79_all_latest WHO dataset on government health expenditure.
-#' @param bbf3a64_all_latest WHO dataset on ODA to health.
-#' @param d2a45a5_all_latest WHO dataset on access to medicines.
-#' @param ed50112_all_latest WHO dataset on unsafe WASH deaths.
-
-#'
-#' @return A data frame with selected WHO health indicators by country.
-#' @export
-preprocess_who_data <- function(
-    relay_may2023_wide = NULL,    # household expenditure on health
-    x9a706fd_all_latest = NULL,   # UHC coverage index
-    x19e688d_all_latest = NULL,   # antibiotic consumption
-    x217795a_all_latest = NULL,   # density of doctors
-    b9c6c79_all_latest = NULL,    # government expenditure on health
-    bbf3a64_all_latest = NULL,    # ODA to health
-    d2a45a5_all_latest = NULL,    # access to medicines
-    ed50112_all_latest = NULL,    # unsafe WASH deaths
-    who_location_keys = NULL
-) {
-  filter_latest <- function(df, value_col, filters = list()) {
-    df <- df |> dplyr::filter(DIM_GEO_CODE_TYPE == "COUNTRY")
-    for (f in names(filters)) {
-      if (f %in% names(df)) {
-        df <- df |> dplyr::filter(.data[[f]] == filters[[f]])
-      }
-    }
-    df <- df |>
-      dplyr::group_by(GEO_NAME_SHORT) |>
-      dplyr::filter(DIM_TIME == max(DIM_TIME, na.rm = TRUE)) |>
-      dplyr::ungroup()
-    ind_name <- unique(df$IND_NAME)[1]
-    df |>
-      dplyr::select(GEO_NAME_SHORT, !!value_col) |>
-      dplyr::rename(!!ind_name := !!value_col)
-  }
-
-  df1 <- filter_latest(relay_may2023_wide, "PERCENT_POP_N",
-                       list(DIM_DEG_URB = "TOTAL"))
-  df2 <- filter_latest(x9a706fd_all_latest, "INDEX_N")
-  df3 <- filter_latest(x19e688d_all_latest, "RATE_PER_100_N",
-                       list(DIM_AMR_GLASS_AWARE = "RESERVE"))
-  df4 <- filter_latest(x217795a_all_latest, "RATE_PER_10000_N")
-  df5 <- filter_latest(b9c6c79_all_latest, "RATE_PER_100_N")
-  df6 <- filter_latest(bbf3a64_all_latest, "MONEY_N")
-  df7 <- filter_latest(d2a45a5_all_latest, "RATE_PER_100_N")
-  df8 <- filter_latest(ed50112_all_latest, "RATE_PER_100000_N",
-                       list(DIM_SEX = "TOTAL"))
-
-  final_data <- df1 |>
-    dplyr::full_join(df2, by = "GEO_NAME_SHORT") |>
-    dplyr::full_join(df3, by = "GEO_NAME_SHORT") |>
-    dplyr::full_join(df4, by = "GEO_NAME_SHORT") |>
-    dplyr::full_join(df5, by = "GEO_NAME_SHORT") |>
-    dplyr::full_join(df6, by = "GEO_NAME_SHORT") |>
-    dplyr::full_join(df7, by = "GEO_NAME_SHORT") |>
-    dplyr::full_join(df8, by = "GEO_NAME_SHORT")
-
-
-  final_data$GEO_NAME_SHORT <- stringi::stri_trans_general(
-    final_data$GEO_NAME_SHORT,
-    "Latin-ASCII"
-  )
-
-  if (!is.null(who_location_keys)) {
-    final_data <- final_data |>
-      dplyr::left_join(who_location_keys |>
-                         dplyr::select(GEO_NAME_SHORT, ISO_A3),
-                       by = "GEO_NAME_SHORT")
-  }
-
-  final_data |>
-    dplyr::transmute(
-      country = `GEO_NAME_SHORT`,
-      iso_a3 = `ISO_A3`,
-      hh_exp_health = `Household health expenditure greater than 25% of household budget`,
-      uhc_coverage = `UHC Service coverage index`,
-      antibiotic_consumption = `Antibiotic consumption pattern`,
-      doctor_density = `Density of doctors`,
-      gov_exp_health = `General government expenditure on domestic health`,
-      oda_to_health = `Development assistance to medical research and basic health`,
-      access_to_medicines = `Access to essential medicines at health facilites`,
-      unsafe_water_deaths = `Unsafe water, sanitation and hygiene services deaths`
-    )
 }
 
 #' Preprocess INFORM Severity Index Data
@@ -607,4 +369,189 @@ preprocess_proximity_assessment <- function(form, risk_country) {
   }
 
   return(form_latest)
+}
+
+#' Preprocess WHO Health Indicator Data
+#'
+#' Extracts the two WHO indicators the index actually consumes:
+#' \itemize{
+#'   \item \strong{9A706FD} - UHC service coverage index, feeding the
+#'     \emph{financing} component of capacity.
+#'   \item \strong{217795A} - density of doctors, feeding the \emph{resources}
+#'     component of capacity.
+#' }
+#'
+#' Version 4.10 reduced this from eight datasets to two. Household health
+#' expenditure, antibiotic consumption, government health expenditure, ODA to
+#' health, access to essential medicines and unsafe-WASH deaths were all
+#' downloaded, parsed and joined, but no downstream function ever read them.
+#' They are no longer fetched: see `sources.md`.
+#'
+#' For each dataset the function filters to country-level records, takes the
+#' most recent year available per country, and renames the value column to the
+#' indicator name.
+#'
+#' @param x9a706fd_all_latest WHO dataset 9A706FD: UHC service coverage index.
+#' @param x217795a_all_latest WHO dataset 217795A: density of doctors.
+#' @param who_location_keys Optional data frame with `GEO_NAME_SHORT` and
+#'   `ISO_A3` for country code mapping.
+#'
+#' @return A data frame with one row per country and columns `country`,
+#'   `iso_a3`, `uhc_coverage`, `doctor_density`, and the reference year of each.
+#' @export
+preprocess_who_data <- function(
+    x9a706fd_all_latest = NULL,   # UHC coverage index
+    x217795a_all_latest = NULL,   # density of doctors
+    who_location_keys = NULL
+) {
+  filter_latest <- function(df, value_col, filters = list()) {
+    df <- df |> dplyr::filter(DIM_GEO_CODE_TYPE == "COUNTRY")
+    for (f in names(filters)) {
+      if (f %in% names(df)) {
+        df <- df |> dplyr::filter(.data[[f]] == filters[[f]])
+      }
+    }
+    df <- df |>
+      dplyr::group_by(GEO_NAME_SHORT) |>
+      dplyr::filter(DIM_TIME == max(DIM_TIME, na.rm = TRUE)) |>
+      dplyr::ungroup()
+    ind_name <- unique(df$IND_NAME)[1]
+    df |>
+      dplyr::select(GEO_NAME_SHORT, DIM_TIME, !!value_col) |>
+      dplyr::rename(!!ind_name := !!value_col)
+  }
+
+  uhc <- filter_latest(x9a706fd_all_latest, "INDEX_N") |>
+    dplyr::rename(year_uhc = DIM_TIME)
+  doctors <- filter_latest(x217795a_all_latest, "RATE_PER_10000_N") |>
+    dplyr::rename(year_doctors = DIM_TIME)
+
+  final_data <- dplyr::full_join(uhc, doctors, by = "GEO_NAME_SHORT")
+
+  final_data$GEO_NAME_SHORT <- stringi::stri_trans_general(
+    final_data$GEO_NAME_SHORT,
+    "Latin-ASCII"
+  )
+
+  if (!is.null(who_location_keys)) {
+    final_data <- final_data |>
+      dplyr::left_join(who_location_keys |>
+                         dplyr::select(GEO_NAME_SHORT, ISO_A3),
+                       by = "GEO_NAME_SHORT")
+  }
+
+  final_data |>
+    dplyr::transmute(
+      country = `GEO_NAME_SHORT`,
+      iso_a3 = `ISO_A3`,
+      uhc_coverage = `UHC Service coverage index`,
+      doctor_density = `Density of doctors`,
+      # Reference years are retained: "most recent available" differs
+      # systematically between well- and poorly-measured countries, and that
+      # heterogeneity should be visible rather than implicit.
+      year_uhc = year_uhc,
+      year_doctors = year_doctors
+    )
+}
+
+#' Preprocess GBD DALY Rates by Cause
+#'
+#' Reshapes a GBD DALY extract to one row per country and one column per cause.
+#'
+#' Version 4.00 selected ten causes by hard-coded `cause_id` and built an
+#' "Other NCDs" aggregate by summing a further ten hard-coded IDs. That is
+#' fragile (GBD revises cause IDs between rounds, and a silently absent ID
+#' simply produced a missing column) and arbitrary (the aggregate depended on
+#' which causes happened to be on the list).
+#'
+#' The extract requested in `sources.md` is "All causes" plus **all level-2
+#' causes**, so v4.10 pivots whatever causes the file contains, keyed on
+#' `cause_name` where available. The set of cause columns is therefore whatever
+#' was downloaded, and is reported rather than assumed.
+#'
+#' @param db A data frame with GBD DALY data including `location_id`,
+#'   `cause_id`, optionally `cause_name`, and `val`.
+#' @param loc_keys A data frame mapping `Location ID` to `ISO_A3` codes.
+#' @param require_all_causes Whether to error when the extract lacks an
+#'   "All causes" column, which the hazard score depends on.
+#'
+#' @return A data frame with DALY rates by cause for each country.
+#' @export
+preprocess_gbd_rates_by_cause <- function(db = NULL,
+                                          loc_keys = NULL,
+                                          require_all_causes = TRUE) {
+  if (is.null(db)) stop(
+    "The 'db' argument is NULL. Please provide a valid data frame.")
+  if (is.null(loc_keys)) stop(
+    "The 'loc_keys' argument is NULL. Please provide a valid data frame.")
+
+  base <- loc_keys |>
+    dplyr::select(`Location ID`, ISO_A3) |>
+    dplyr::right_join(db, by = c("Location ID" = "location_id"))
+
+  # GBD exports carry cause_name; fall back to the ID only if absent.
+  if ("cause_name" %in% names(base)) {
+    base <- dplyr::mutate(base, cause_label = as.character(cause_name))
+  } else {
+    warning(
+      "preprocess_gbd_rates_by_cause(): no 'cause_name' column in the GBD ",
+      "extract; falling back to 'cause_id' as the column name. Re-download ",
+      "with cause names included for readable output.",
+      call. = FALSE
+    )
+    base <- dplyr::mutate(base, cause_label = paste0("cause_", cause_id))
+  }
+
+  out <- base |>
+    dplyr::select(location_name, ISO_A3, cause_label, val) |>
+    dplyr::filter(!is.na(cause_label)) |>
+    tidyr::pivot_wider(
+      names_from = cause_label,
+      values_from = val,
+      # Guard against a malformed extract with duplicated country-cause rows
+      # (e.g. more than one year, sex or age group left in the download).
+      values_fn = function(x) {
+        if (length(x) > 1) {
+          warning(
+            "preprocess_gbd_rates_by_cause(): duplicated country-cause rows ",
+            "found; the extract probably contains more than one year, sex or ",
+            "age group. Taking the mean.",
+            call. = FALSE
+          )
+        }
+        mean(x, na.rm = TRUE)
+      }
+    )
+
+  if (require_all_causes && !"All causes" %in% names(out)) {
+    stop(
+      "preprocess_gbd_rates_by_cause(): the extract has no 'All causes' ",
+      "column, which add_hazard_score() requires. Check the GBD request: ",
+      "Cause must include 'All causes' as well as the level-2 causes. ",
+      "Causes found: ",
+      paste(utils::head(setdiff(names(out), c("location_name", "ISO_A3")), 20),
+            collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  out
+}
+
+#' Cause columns present in a GBD rates table
+#'
+#' Helper used by the radar chart, the correlation matrix and the Shiny explorer
+#' so they adapt to whichever causes were downloaded instead of hard-coding a
+#' list.
+#'
+#' @param df A data frame from [preprocess_gbd_rates_by_cause()].
+#' @param exclude Columns that are not causes.
+#'
+#' @return A character vector of cause column names, excluding "All causes".
+#' @export
+gbd_cause_columns <- function(df,
+                              exclude = c("location_name", "ISO_A3", "country",
+                                          "iso_a3", "All causes")) {
+  numeric_cols <- names(df)[vapply(df, is.numeric, logical(1))]
+  setdiff(numeric_cols, exclude)
 }

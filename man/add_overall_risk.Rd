@@ -4,23 +4,19 @@
 \alias{add_overall_risk}
 \title{Compute Overall Risk Score}
 \usage{
-add_overall_risk(df)
+add_overall_risk(df, min_n = 3)
 }
 \arguments{
 \item{df}{A data frame containing the three component scores.}
+
+\item{min_n}{Minimum number of non-missing components required. Defaults to
+3, i.e. all three, so that a country missing an entire dimension is
+reported as \code{NA} rather than scored on the remainder.}
 }
 \value{
 The input data frame with an added column \code{overall_risk}.
 }
 \description{
-Calculates the overall risk score as the geometric mean of:
-\itemize{
-\item \code{hazard_score}
-\item \code{vulnerability_score}
-\item \code{capacity_score}
-}
-}
-\details{
-This score reflects the combined impact of hazard, vulnerability, and system
-capacity.
+Calculates the overall (pre-crisis) risk score as the geometric mean of
+\code{hazard_score}, \code{vulnerability_score} and \code{capacity_score}.
 }

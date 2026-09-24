@@ -4,27 +4,36 @@
 \alias{preprocess_gbd_rates_by_cause}
 \title{Preprocess GBD DALY Rates by Cause}
 \usage{
-preprocess_gbd_rates_by_cause(db = NULL, loc_keys = NULL)
+preprocess_gbd_rates_by_cause(
+  db = NULL,
+  loc_keys = NULL,
+  require_all_causes = TRUE
+)
 }
 \arguments{
 \item{db}{A data frame with GBD DALY data including \code{location_id},
-\code{cause_id}, and \code{val}.}
+\code{cause_id}, optionally \code{cause_name}, and \code{val}.}
 
 \item{loc_keys}{A data frame mapping \verb{Location ID} to \code{ISO_A3} codes.}
+
+\item{require_all_causes}{Whether to error when the extract lacks an
+"All causes" column, which the hazard score depends on.}
 }
 \value{
 A data frame with DALY rates by cause for each country.
 }
 \description{
-Processes Global Burden of Disease (GBD) DALY data to extract
-disease-specific rates.
-The function:
-\itemize{
-\item Maps GBD location IDs to ISO A3 codes.
-\item Filters for selected cause IDs and reshapes the data to wide format.
-\item Computes a composite "Other NCDs" category by summing DALYs for a
-predefined set of causes.
-\item Merges the selected causes and the composite category into a single
-data frame.
+Reshapes a GBD DALY extract to one row per country and one column per cause.
 }
+\details{
+Version 4.00 selected ten causes by hard-coded \code{cause_id} and built an
+"Other NCDs" aggregate by summing a further ten hard-coded IDs. That is
+fragile (GBD revises cause IDs between rounds, and a silently absent ID
+simply produced a missing column) and arbitrary (the aggregate depended on
+which causes happened to be on the list).
+
+The extract requested in \code{sources.md} is "All causes" plus \strong{all level-2
+causes}, so v4.10 pivots whatever causes the file contains, keyed on
+\code{cause_name} where available. The set of cause columns is therefore whatever
+was downloaded, and is reported rather than assumed.
 }

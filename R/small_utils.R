@@ -70,3 +70,19 @@ export_gpkg <- function(data = NULL,
     dplyr::left_join(data[, cols], by = setNames(data_key, "adm0_a3")) |>
     sf::st_write(.data_path, append = FALSE)
 }
+
+#' GBD round used by the pipeline
+#'
+#' The GBD year appears in two input file names. Keeping it in one place means
+#' a new round is a one-line change rather than a search-and-replace, and makes
+#' the vintage of the hazard component explicit rather than buried in a path.
+#'
+#' Per `sources.md`, the extract must be requested from
+#' <https://vizhub.healthdata.org/gbd-results/> with: Estimate = Cause of death
+#' or injury; Measure = DALYs; Metric = Rate; Cause = "All causes" plus all
+#' level-2 causes; Location = all countries and territories; Age = all ages;
+#' Sex = both; Year = this value.
+#'
+#' @return A character scalar.
+#' @export
+gbd_year <- function() "2021"
