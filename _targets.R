@@ -32,23 +32,22 @@ list(
 
   # Import your file from custom (shared) location, and preprocess them
   # Utilities file
-  tar_target(cm_data, get_input_data_path("crisis_modifier_matrix.xlsx") |>
+  tar_target(cm_data, risk_input_path("crisis_modifier") |>
                import_cm_matrix()),
 
   # GBD section
   # GBD extract: DALYs, Rate, All ages, Both sexes, "All causes" + all level-2
   # causes. See sources.md for the exact vizhub request. Bump gbd_year() in
-  # R/small_utils.R when a new round is downloaded.
-  tar_target(gbd_data, get_input_data_path(
-               paste0("GBD/IHME-GBD_", gbd_year(), "_DALY.csv")) |>
+  # R/small_utils.R when a new round is downloaded. Input file names live in
+  # risk_input_files() (R/calculator_.R), shared with run_calculator_app().
+  tar_target(gbd_data, risk_input_path("gbd_daly") |>
                import_data()),
   tar_target(haqi_data,
-             get_input_data_path("GBD/HAQI/IHME_GBD_2019_HAQ_1990_2019_DATA_Y2022M012D21.csv") |>
+             risk_input_path("haqi") |>
                import_data()),
-  tar_target(location_keys, get_input_data_path(
-               paste0("GBD/IHME_GBD_", gbd_year(), "_location_keys.csv")) |>
+  tar_target(location_keys, risk_input_path("gbd_location_keys") |>
                import_data()),
-  tar_target(who_location_keys, get_input_data_path("WHO/WHO_loc_keys.xlsx") |>
+  tar_target(who_location_keys, risk_input_path("who_location_keys") |>
                import_excel()),
 
   tar_target(gbd_rates, preprocess_gbd_rates_by_cause(gbd_data, location_keys)),
@@ -60,9 +59,9 @@ list(
 
   # WHO section
   ## indicators
-  tar_target(x9a706fd_all_latest, get_input_data_path("WHO/9A706FD_ALL_LATEST.csv") |>
+  tar_target(x9a706fd_all_latest, risk_input_path("who_uhc") |>
                import_data()),
-  tar_target(x217795a_all_latest, get_input_data_path("WHO/217795A_ALL_LATEST.csv") |>
+  tar_target(x217795a_all_latest, risk_input_path("who_doctors") |>
                import_data()),
   # Only two WHO indicators are consumed by the index (see sources.md):
   # 9A706FD (UHC service coverage) and 217795A (density of doctors).
@@ -70,12 +69,12 @@ list(
                                                  x217795a_all_latest,
                                                  who_location_keys)),
   # EU INFORM section
-  tar_target(inform_risk_path, get_input_data_path("EU/INFORM_Risk_Mid_2025_v071.xlsx")),
+  tar_target(inform_risk_path, risk_input_path("inform_risk")),
   tar_target(inform_risk_data, import_inform_excel(inform_risk_path)),
   tar_target(inform_lcc_data, import_inform_excel(inform_risk_path, sheet = 5)),
   tar_target(inform_cap, preprocess_inform(inform_risk_data, inform_lcc_data)),
 
-  tar_target(inform_severity_path, get_input_data_path("EU/202512_inform_severity_mid_december_2025.xlsx")),
+  tar_target(inform_severity_path, risk_input_path("inform_severity")),
   tar_target(inform_severity_data, import_severity_excel(inform_severity_path)),
   tar_target(inform_severity, preprocess_severity(inform_severity_data)),
   tar_target(map_sev_score, createmap_severity_score(risk_score)),
@@ -101,14 +100,9 @@ list(
   # to force the downstream scores to rebuild.
   tar_target(reference_quantiles, read_reference_quantiles()),
 
-  tar_target(risk_score, merged_indicators |>
-               add_data_completeness() |>
-               add_hazard_score(reference = reference_quantiles) |>
-               add_vulnerability_score(reference = reference_quantiles) |>
-               add_capacity_score(reference = reference_quantiles) |>
-               add_overall_risk() |>
-               add_severity(cm_data = cm_data)
-             ),
+  # score_risk() is shared with the calculator app (run_calculator_app()).
+  tar_target(risk_score, score_risk(merged_indicators, cm_data,
+                                    reference_quantiles)),
 
   # Severity diagnostics: what the crisis modifier actually did, and why
   tar_target(severity_calibration, severity_calibration_table()),

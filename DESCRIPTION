@@ -41,7 +41,9 @@ Imports:
     tibble,
     tidyr,
     tidyselect,
-    viridis
+    tools,
+    viridis,
+    writexl
 Suggests: 
     checkmate,
     covr,

@@ -14,6 +14,11 @@
 #' part, and recomputing them on every country selection would make the app
 #' unusable.
 #'
+#' The returned app object is self-contained: it carries its own copy of the
+#' plotting helpers, so it still runs after being restored with
+#' `targets::tar_read(shiny_explorer)` in a session where `tar_source()` has not
+#' been called. See `self_contained()`.
+#'
 #' @param raw_data A data frame containing the full dataset with country-level
 #' health and risk indicators. This dataset is used across all visualizations.
 #' @param radar_data A data frame containing a subset of the raw data
@@ -26,11 +31,6 @@
 #' @param decomposition Precomputed output of [build_decomposition()]. When
 #'  `NULL` the decomposition tab reports that it is unavailable rather than
 #'  failing.
-#'
-#' The returned app object is self-contained: it carries its own copy of the
-#' plotting helpers, so it still runs after being restored with
-#' `targets::tar_read(shiny_explorer)` in a session where `tar_source()` has not
-#' been called. See `self_contained()`.
 #'
 #' @return A `shiny.appobj`. Printing it (which is what happens when it is
 #'   returned at the console) or passing it to [shiny::runApp()] launches the
