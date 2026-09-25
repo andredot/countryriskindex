@@ -2,9 +2,14 @@
 #'
 #' This function initializes and launches an interactive Shiny web application
 #' designed to explore and visualize country-level health and crisis risk data.
-#' The app includes multiple interactive visualizations such as a lollipop plot,
-#' 3D scatterplot, radar chart, risk distribution histogram, and an adjusted risk
-#'  map.
+#' The app includes a score decomposition (waterfall and contribution bars),
+#' a 3D scatterplot, a radar chart, a risk distribution histogram, and an
+#' adjusted risk map.
+#'
+#' The decomposition is **precomputed** by the `risk_decomposition` target
+#' rather than calculated here: the Shapley values behind it are the expensive
+#' part, and recomputing them on every country selection would make the app
+#' unusable.
 #'
 #' @param raw_data A data frame containing the full dataset with country-level
 #' health and risk indicators. This dataset is used across all visualizations.
@@ -15,25 +20,50 @@
 #' @param corrected_radar_data A data frame similar in structure to `radar_data`,
 #' but with severity-adjusted values used to compare original and corrected
 #'  risk profiles.
+#' @param decomposition Precomputed output of [build_decomposition()]. When
+#'  `NULL` the decomposition tab reports that it is unavailable rather than
+#'  failing.
 #'
 #' @return This function does not return a value. It launches a Shiny
 #' application in the user's default web browser.
 #' @export
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
 run_app <- function(raw_data,
                     radar_data,
-                    corrected_radar_data) {
+                    corrected_radar_data,
+                    decomposition = NULL) {
+
+  country_choices <- sort(unique(stats::na.omit(raw_data$country)))
+
   shiny::shinyApp(
     ui = shiny::fluidPage(
       shiny::titlePanel("Country Risk Explorer"),
       shiny::sidebarLayout(
         shiny::sidebarPanel(
           shiny::selectInput("country", "Select a Country:",
-                             choices = unique(raw_data$country))
+                             choices = country_choices),
+          shiny::conditionalPanel(
+            condition = "input.tabs == 'Score Decomposition'",
+            shiny::radioButtons(
+              "decomp_level", "Detail:",
+              choices = c("Components" = "component",
+                          "Indicators" = "indicator"),
+              selected = "component"
+            ),
+            shiny::checkboxInput("decomp_severity",
+                                 "Include crisis modifier", TRUE)
+          )
         ),
         shiny::mainPanel(
           shiny::tabsetPanel(
-            shiny::tabPanel("Lollipop Plot",
-                            shiny::plotOutput("lollipopPlot", height = "2400px")),
+            id = "tabs",
+            shiny::tabPanel(
+              "Score Decomposition",
+              shiny::plotOutput("waterfallPlot", height = "560px"),
+              shiny::plotOutput("contributionPlot", height = "460px"),
+              shiny::tableOutput("decompSummary")
+            ),
             shiny::tabPanel("3D Scatterplot",
                             plotly::plotlyOutput("scatter3D", height = "800px")),
             shiny::tabPanel("Radar Plot",
@@ -47,104 +77,80 @@ run_app <- function(raw_data,
       )
     ),
     server = function(input, output) {
-      output$lollipopPlot <- shiny::renderPlot({
-        # Define variable groups in desired order
-        # Cause columns are derived from the data: the GBD extract now carries
-        # all level-2 causes, so hard-coding a list would silently drop
-        # whichever causes GBD renames between rounds.
-        cause_vars <- intersect(gbd_cause_columns(raw_data), names(raw_data))
+      # The decomposition is read, never recomputed: build_decomposition()
+      # enumerates Shapley coalitions per country and belongs in the pipeline.
+      no_decomp <- function(msg) {
+        ggplot2::ggplot() +
+          ggplot2::annotate("text", x = 0, y = 0, label = msg,
+                            size = 5, colour = "grey30") +
+          ggplot2::theme_void()
+      }
 
-        ordered_vars <- c(
-          "overall_risk", "severity_adjusted_risk",
-          "hazard_score", "All causes", cause_vars,
-          "vulnerability_score",
-          "infrastructure", "adult_literacy", "vulnerable_groups",
-          "soc_econ_vulnerability",
-          "capacity_score",
-          "governance", "financing", "resources", "services",
-          "severity_index",
-          "crisis_impact", "people_conditions", "crisis_complexity"
+      output$waterfallPlot <- shiny::renderPlot({
+        if (is.null(decomposition)) {
+          return(no_decomp(paste(
+            "No decomposition supplied.",
+            "Build the `risk_decomposition` target and pass it to run_app().",
+            sep = "\n")))
+        }
+        create_decomposition_waterfall(
+          decomposition,
+          country = input$country,
+          level = input$decomp_level %||% "component",
+          include_severity = isTRUE(input$decomp_severity)
         )
+      })
 
-        # Normalize and reshape data
-        numeric_vars <- raw_data |>
-          dplyr::select(where(is.numeric)) |>
-          dplyr::select(dplyr::any_of(ordered_vars)) |>
-          colnames()
+      output$contributionPlot <- shiny::renderPlot({
+        if (is.null(decomposition)) return(no_decomp(""))
+        create_contribution_bars(decomposition, country = input$country)
+      })
 
-        df_long <- raw_data |>
-          dplyr::select(country, all_of(numeric_vars)) |>
-          dplyr::mutate(dplyr::across(where(is.numeric), normalise_quantiles)) |>
-          tidyr::pivot_longer(-country,
-                              names_to = "Variable",
-                              values_to = "Value") |>
-          dplyr::group_by(Variable) |>
-          dplyr::mutate(Global_Avg = mean(Value, na.rm = TRUE)) |>
-          dplyr::filter(country == input$country)
+      output$decompSummary <- shiny::renderTable({
+        if (is.null(decomposition)) return(NULL)
+        d <- decomposition$summary
+        d <- d[d$country == input$country, , drop = FALSE]
+        if (nrow(d) == 0) return(NULL)
 
-        # Assign colors and sizes
-        df_long <- df_long |>
-          dplyr::mutate(
-            Size = dplyr::case_when(
-              Variable %in% c("overall_risk", "severity_adjusted_risk") ~ 10,
-              Variable %in% c("hazard_score", "vulnerability_score",
-                              "capacity_score", "severity_index") ~ 5,
-              Variable %in% ordered_vars ~ 3,
-              TRUE ~ 1
-            ),
-            Color = dplyr::case_when(
-              Variable == "overall_risk" ~ "lightblue",
-              Variable == "severity_adjusted_risk" ~ "deepskyblue",
-              Variable == "hazard_score" ~ "darkorange",
-              Variable %in% c("All causes", cause_vars) ~
-                scales::alpha("orange", 0.67),
-              Variable == "vulnerability_score" ~ "darkblue",
-              Variable %in% c(
-                "infrastructure", "adult_literacy", "vulnerable_groups",
-                "soc_econ_vulnerability") ~ scales::alpha("blue", 0.67),
-              Variable == "capacity_score" ~ "darkgreen",
-              Variable %in% c(
-                "governance", "financing", "resources",
-                "services") ~ scales::alpha("green", 0.67),
-              Variable == "severity_index" ~ "purple",
-              Variable %in% c(
-                "crisis_impact", "people_conditions",
-                "crisis_complexity") ~ scales::alpha("purple", 0.67),
-              TRUE ~ "black"
-            ),
-            Variable = factor(Variable,
-                              levels = rev(ordered_vars))  # reverse order
-          )
-
-        # Plot
-        ggplot2::ggplot(df_long, ggplot2::aes(x = Value, y = Variable)) +
-          ggplot2::geom_segment(ggplot2::aes(xend = Global_Avg, yend = Variable),
-                                color = "grey") +
-          ggplot2::geom_point(ggplot2::aes(x = Global_Avg), color = "grey",
-                              size = 3) +
-          ggplot2::geom_point(ggplot2::aes(color = Color, size = Size),
-                              show.legend = FALSE) +
-          ggplot2::scale_color_identity() +
-          ggplot2::scale_size_identity() +
-          ggplot2::labs(
-            title = paste("Lollipop Plot for", input$country),
-            x = "Value", y = NULL,
-            caption = "Blue = Selected Country, Grey = Global Average"
-          ) +
-          ggplot2::theme_minimal() +
-          ggplot2::theme(axis.text.y = ggplot2::element_text(size = 15))
+        fmt <- function(x) if (is.numeric(x)) sprintf("%.3f", x) else as.character(x)
+        keep <- intersect(
+          c("reference_risk", "overall_risk", "severity_adjusted_risk",
+            "severity_contribution", "dominant_driver", "mitigating_factor",
+            "data_completeness", "low_confidence"),
+          names(d)
+        )
+        data.frame(
+          Measure = c(
+            reference_risk = "Reference country risk",
+            overall_risk = "Structural risk",
+            severity_adjusted_risk = "Severity-adjusted risk",
+            severity_contribution = "Crisis contribution (log)",
+            dominant_driver = "Dominant driver",
+            mitigating_factor = "Mitigating factor",
+            data_completeness = "Data completeness",
+            low_confidence = "Low confidence"
+          )[keep],
+          Value = vapply(keep, function(k) fmt(d[[k]][1]), character(1)),
+          row.names = NULL,
+          stringsAsFactors = FALSE
+        )
       })
 
       output$riskHistogram <- shiny::renderPlot({
         selected_data <- raw_data |>
           dplyr::filter(country == input$country)
+        shiny::validate(shiny::need(nrow(selected_data) == 1,
+                                    "Select a single country."))
 
         plot_data <- raw_data |>
           tidyr::pivot_longer(cols = c(overall_risk, severity_adjusted_risk),
                               names_to = "risk_type",
                               values_to = "value")
 
-        bin_breaks <- pretty(range(plot_data$value), n = 5)
+        plot_data <- plot_data[is.finite(plot_data$value), , drop = FALSE]
+        shiny::validate(shiny::need(nrow(plot_data) > 0,
+                                    "No risk scores available."))
+        bin_breaks <- pretty(range(plot_data$value, na.rm = TRUE), n = 5)
 
         binned_data <- plot_data |>
           dplyr::mutate(bin = cut(value, breaks = bin_breaks,
@@ -159,15 +165,21 @@ run_app <- function(raw_data,
         selected_severity_bin <- cut(selected_data$severity_adjusted_risk,
                                      breaks = bin_breaks, include.lowest = TRUE)
 
+        # A country whose score falls outside the binned range yields no match;
+        # pulling an empty vector into geom_segment() silently breaks the layer.
+        first_or_zero <- function(x) if (length(x) == 0) 0 else x[1]
+
         overall_y <- binned_data |>
           dplyr::filter(risk_type == "overall_risk",
                         bin == selected_overall_bin) |>
-          dplyr::pull(count)
+          dplyr::pull(count) |>
+          first_or_zero()
 
         severity_y <- binned_data |>
           dplyr::filter(risk_type == "severity_adjusted_risk",
                         bin == selected_severity_bin) |>
-          dplyr::pull(count)
+          dplyr::pull(count) |>
+          first_or_zero()
 
         ggplot2::ggplot(binned_data, ggplot2::aes(x = bin, y = count,
                                                   fill = risk_type)) +
@@ -234,7 +246,7 @@ run_app <- function(raw_data,
 
         # Select only numeric columns for radar
         radar_vars <- radar_data |>
-          dplyr::select(where(is.numeric)) |>
+          dplyr::select(tidyselect::where(is.numeric)) |>
           colnames()
 
         # Normalize full datasets column-wise
@@ -268,13 +280,21 @@ run_app <- function(raw_data,
         }
 
         # Get Drivers value
-        drivers_value <- raw_data |>
-          dplyr::filter(country == input$country) |>
-          dplyr::pull(CRISIS) |>
-          unique()
+        drivers_value <- if (!"CRISIS" %in% names(raw_data)) {
+          character(0)
+        } else {
+          raw_data |>
+            dplyr::filter(country == input$country) |>
+            dplyr::pull(CRISIS) |>
+            unique() |>
+            as.character()
+        }
 
-        # Check if Drivers is available
-        if (is.na(drivers_value) || length(drivers_value) == 0) {
+        # `||` errors on zero-length or length > 1 operands under R >= 4.3, and
+        # a country with several crises returns more than one value.
+        drivers_value <- drivers_value[!is.na(drivers_value) &
+                                         nzchar(drivers_value)]
+        if (length(drivers_value) == 0) {
           # Only original data
           combined <- selected[, radar_vars]
           combined$Country <- "Original"
@@ -283,7 +303,7 @@ run_app <- function(raw_data,
           combined |>
             dplyr::relocate(Country) |>
             ggradar::ggradar(grid.min = 0, grid.mid = 0.5, grid.max = 1,
-                             values.radar = c("1%", "99%"),
+                             values.radar = c("0%", "50%", "100%"),
                              group.line.width = 1.5,
                              group.point.size = 3,
                              group.colours = "deepskyblue",
@@ -302,12 +322,13 @@ run_app <- function(raw_data,
 
           combined <- dplyr::bind_rows(original_row, corrected_row)
 
-          subtitle_text <- paste("\n Health risk corrected for", drivers_value)
+          subtitle_text <- paste("\n Health risk corrected for",
+                                 paste(drivers_value, collapse = "; "))
 
           combined |>
             dplyr::relocate(Country) |>
             ggradar::ggradar(grid.min = 0, grid.mid = 0.5, grid.max = 1,
-                             values.radar = c("0%", "20%", "40%", "80%", "100%"),
+                             values.radar = c("0%", "50%", "100%"),
                              group.line.width = 1.5,
                              group.point.size = 3,
                              group.colours = c("deeppink", "deepskyblue"),

@@ -66,27 +66,77 @@ add_vulnerability_score <- function(df, reference = NULL, min_n = 3) {
                                           c("comms", "physical"),
                                           min_n = 1)
 
-  # Final vulnerability components, all oriented so that higher = better
-  raw_components <- data.frame(
-    infrastructure = df$infrastructure,
-    adult_literacy = invert_0_10(df$adult_literacy),
-    vulnerable_groups = invert_0_10(df$vulnerable_groups),
-    soc_econ_vulnerability = invert_0_10(df$soc_econ_vulnerability)
-  )
-
-  raw_geom <- row_geometric_mean(raw_components, names(raw_components),
-                                 min_n = min_n)
-  inverted_geom <- invert_0_10(raw_geom)
+  # Final vulnerability components, all oriented so that higher = better.
+  # These are stored on the data frame (prefix `vc_`) because the score
+  # decomposition has to re-evaluate the aggregation at counterfactual inputs;
+  # see R/explain_.R.
+  df$vc_infrastructure <- df$infrastructure
+  df$vc_education <- invert_0_10(df$adult_literacy)
+  df$vc_vulnerable_groups <- invert_0_10(df$vulnerable_groups)
+  df$vc_socioeconomic <- invert_0_10(df$soc_econ_vulnerability)
 
   bounds <- get_reference_bounds(reference, "vulnerability_raw")
-  df$vulnerability_raw <- inverted_geom
-  df$vulnerability_score <- normalise_quantiles(
-    inverted_geom,
-    q01 = bounds$q01,
-    q99 = bounds$q99
+  df$vulnerability_raw <- invert_0_10(
+    row_geometric_mean(df, vulnerability_component_cols(), min_n = min_n)
+  )
+  df$vulnerability_score <- aggregate_vulnerability(
+    df[, vulnerability_component_cols(), drop = FALSE],
+    q01 = bounds$q01, q99 = bounds$q99, min_n = min_n
   )
 
   df
+}
+
+#' Sub-component columns behind each composite score
+#'
+#' The aggregation of each pillar is exposed as a function of its
+#' sub-components so that [add_vulnerability_score()]/[add_capacity_score()] and
+#' the score decomposition in `R/explain_.R` share one definition and cannot
+#' drift apart. All sub-components are oriented so that **higher = better**.
+#'
+#' @return A character vector of column names.
+#' @export
+vulnerability_component_cols <- function() {
+  c("vc_infrastructure", "vc_education",
+    "vc_vulnerable_groups", "vc_socioeconomic")
+}
+
+#' @rdname vulnerability_component_cols
+#' @export
+capacity_component_cols <- function() {
+  c("governance", "financing", "resources", "services")
+}
+
+#' Aggregate vulnerability sub-components into a score
+#'
+#' Geometric mean of the four "higher = better" sub-components, inverted onto
+#' the 0-10 risk direction and normalised. Separated from
+#' [add_vulnerability_score()] so the decomposition can evaluate it at arbitrary
+#' inputs.
+#'
+#' @param components A data frame or matrix whose columns are the sub-components
+#'   in [vulnerability_component_cols()] order.
+#' @param q01,q99 Frozen normalisation bounds, or `NULL` for run-relative.
+#' @param min_n Minimum non-missing sub-components required.
+#'
+#' @return A numeric vector in `[0, 1]`, higher = more vulnerable.
+#' @export
+aggregate_vulnerability <- function(components, q01 = NULL, q99 = NULL,
+                                    min_n = 3) {
+  components <- as.data.frame(components)
+  raw <- row_geometric_mean(components, names(components), min_n = min_n)
+  normalise_quantiles(invert_0_10(raw), q01 = q01, q99 = q99)
+}
+
+#' Aggregate capacity sub-components into a score
+#'
+#' @inheritParams aggregate_vulnerability
+#' @return A numeric vector in `[0, 1]`, higher = less capacity.
+#' @export
+aggregate_capacity <- function(components, q01 = NULL, q99 = NULL, min_n = 3) {
+  components <- as.data.frame(components)
+  raw <- row_geometric_mean(components, names(components), min_n = min_n)
+  normalise_quantiles(invert_0_100(raw), q01 = q01, q99 = q99)
 }
 
 #' Compute Hazard Score from GBD Rates
@@ -183,15 +233,14 @@ add_capacity_score <- function(df, reference = NULL, min_n = 3) {
 
   df$services <- df$haqi
 
-  raw_components <- c("governance", "financing", "resources", "services")
-  raw_geometric <- row_geometric_mean(df, raw_components, min_n = min_n)
-  inverted_geom <- invert_0_100(raw_geometric)
-
   bounds <- get_reference_bounds(reference, "capacity_raw")
-  df$capacity_raw <- inverted_geom
-  df$capacity_score <- normalise_quantiles(inverted_geom,
-                                           q01 = bounds$q01,
-                                           q99 = bounds$q99)
+  df$capacity_raw <- invert_0_100(
+    row_geometric_mean(df, capacity_component_cols(), min_n = min_n)
+  )
+  df$capacity_score <- aggregate_capacity(
+    df[, capacity_component_cols(), drop = FALSE],
+    q01 = bounds$q01, q99 = bounds$q99, min_n = min_n
+  )
 
   df
 }

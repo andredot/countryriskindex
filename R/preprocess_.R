@@ -163,7 +163,8 @@ preprocess_severity <- function(df) {
 #'
 #' @param df A data frame from [preprocess_severity()], one row per crisis.
 #'
-#' @return A data frame with one row per `ISO3`, plus an `n_crises` column.
+#' @return A data frame with one row per `ISO3`, plus `n_crises` and a
+#'   semicolon-separated `CRISIS` listing the crises that were merged.
 #' @export
 collapse_severity_by_country <- function(df) {
   if (!"ISO3" %in% names(df)) {
@@ -181,6 +182,10 @@ collapse_severity_by_country <- function(df) {
     dplyr::summarise(
       COUNTRY = dplyr::first(COUNTRY),
       n_crises = dplyr::n(),
+      # Keep the crisis names: the radar chart labels the correction with them,
+      # and a character column would otherwise be dropped by the numeric/driver
+      # summaries below.
+      CRISIS = paste(unique(stats::na.omit(CRISIS)), collapse = "; "),
       dplyr::across(dplyr::all_of(numeric_cols),
                     ~ if (all(is.na(.x))) NA_real_ else max(.x, na.rm = TRUE)),
       dplyr::across(dplyr::all_of(driver_cols),

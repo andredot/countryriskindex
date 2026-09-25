@@ -1,5 +1,75 @@
 # countryriskindex 0.2.0 (index version 4.10)
 
+## Score decomposition (new)
+
+Every published score can now be traced back to the inputs that produced it,
+exactly rather than approximately. New module `R/explain_.R`.
+
+* `build_decomposition()` is the single pipeline target (`risk_decomposition`).
+  It is the expensive step, so it runs once and the report and Shiny app read
+  its output rather than recomputing.
+* **Level 1 is exact by construction.** The index is a geometric mean, which is
+  additive in logs, so `decompose_components()` splits
+  `log(risk) - log(reference)` across hazard, vulnerability and capacity with no
+  approximation and no weighting choice to dispute.
+* **Level 2 uses exact Shapley values.** Extending the log decomposition below
+  the component level does not work: `invert_0_10()` and `normalise_quantiles()`
+  are affine, and on realistic inputs the naive extension returns contributions
+  of the *wrong sign*. `shapley_contributions()` enumerates all 16 coalitions
+  per pillar, which is exact and cheap; it refuses more than 12 inputs rather
+  than attempting a flat decomposition over every indicator.
+* **The levels reconcile without a correction factor**, because a pillar's
+  Shapley values sum to `log(pillar_c) - log(pillar_ref)` and are then scaled by
+  1/3. Verified by test to 1e-9.
+* `decompose_severity()` splits the crisis uplift by component on the same
+  footing, reporting the log-score effect alongside the `delta_*` log-odds shift
+  that produced it.
+* `build_reference_profile()` derives each pillar's reference from the reference
+  *sub-components* rather than averaging observed pillar scores. Averaging them
+  gives a baseline unreachable from its own inputs, and the two levels then fail
+  to reconcile.
+* `resolve_pillar_bounds()` fixes the normalisation bounds across every coalition
+  evaluation. Without this the function being decomposed changes between
+  coalitions and the Shapley values are meaningless; with a single row, quantile
+  normalisation also degenerates to `q01 == q99`.
+* `summarise_decomposition()` reports the dominant driver, the mitigating
+  factor, and the crisis contribution per country.
+* `attach_confidence()` tags each contribution with the completeness of its
+  component, so a large contribution built on missing inputs is visible.
+* `create_decomposition_waterfall()` and `create_contribution_bars()` render it.
+  The waterfall's running product reproduces the published score exactly.
+* `aggregate_vulnerability()` / `aggregate_capacity()` factored out of
+  `add_*_score()` so scoring and decomposition share one definition and cannot
+  drift. Vulnerability sub-components are now stored on the data frame with a
+  `vc_` prefix.
+
+### Fixed
+
+* `logit_shift()` could move a score **against** the sign of its shift. A
+  component clipped at 1 came back as 0.9995 under a positive adjustment,
+  producing a small negative severity contribution. It is now
+  direction-preserving, and `delta == 0` is exactly the identity.
+
+## Shiny explorer repaired
+
+* The lollipop tab is replaced by a **Score Decomposition** tab (waterfall,
+  contribution bars, summary table) with a component/indicator toggle and a
+  switch for the crisis modifier. It reads the precomputed target.
+* `collapse_severity_by_country()` dropped `CRISIS`, a character column, which
+  the radar tab pulls to label the correction. It is now retained, with multiple
+  crises joined by semicolons.
+* The radar tab's `is.na(drivers_value) || length(drivers_value) == 0` errors
+  under R >= 4.3 on zero-length or length > 1 operands - and a country with
+  several crises returns more than one. Rewritten, and guarded for a missing
+  `CRISIS` column.
+* `ggradar()` was called with two axis labels in one branch and five in the
+  other; it expects three.
+* The histogram passed a zero-length `count` into `geom_segment()` when the
+  selected country fell outside the binned range, silently breaking the layer.
+  Also guards non-finite scores.
+* Country choices are sorted and `NA`-free.
+
+
 ## Input sources reduced to those actually used
 
 The pipeline downloaded and parsed a number of inputs that no downstream

@@ -10,7 +10,8 @@ collapse_severity_by_country(df)
 \item{df}{A data frame from \code{\link[=preprocess_severity]{preprocess_severity()}}, one row per crisis.}
 }
 \value{
-A data frame with one row per \code{ISO3}, plus an \code{n_crises} column.
+A data frame with one row per \code{ISO3}, plus \code{n_crises} and a
+semicolon-separated \code{CRISIS} listing the crises that were merged.
 }
 \description{
 INFORM Severity records one row per \emph{crisis}, and a country may host several.

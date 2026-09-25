@@ -291,6 +291,48 @@ To explore the relationships among key dimensions of humanitarian risk, we compu
 
 To enhance interpretability, we highlighted variable clusters with colored rectangles corresponding to their thematic groupings. This allowed us to assess both intra-cluster coherence (how strongly variables within a group correlate with each other) and inter-cluster relationships (how distinct the clusters are from one another). The analysis was conducted using tidyverse tools in R, ensuring reproducibility and clarity in data handling and visualization.
 
+### Rationale for the score decomposition
+
+A score that cannot be explained cannot be defended. Version 4.10 therefore
+reports, for every country, exactly how its score was reached.
+
+The index is built from geometric means, which are additive in logarithms, so
+the three components decompose against a reference country with no approximation
+whatsoever:
+
+$$
+\log r_c - \log r_{ref} = \frac{1}{3}\sum_k \left[\log x_{k,c} - \log x_{k,ref}\right]
+$$
+
+Read multiplicatively, this is a statement anyone can check: *the reference
+country scores 0.38; hazard multiplies that by 1.16, vulnerability by 1.13,
+capacity divides it by 1.05, giving 0.47.* The weights are fixed at one third by
+the structure of the geometric mean, so all the variation comes from how far each
+component sits from the reference. There is no weighting choice to dispute.
+
+Below the component level that identity fails, because `invert_0_10()` and
+`normalise_quantiles()` are affine rather than multiplicative. Extending the log
+decomposition through them is not merely imprecise: on realistic inputs it
+returns contributions of the wrong sign. Sub-component attribution therefore uses
+**exact Shapley values**, enumerated over all sixteen coalitions per pillar, which
+are agnostic to what sits between input and output and satisfy the efficiency
+axiom. Scaling them by one third makes them sum to the pillar's own top-level
+contribution, so the two levels reconcile without a correction factor.
+
+The crisis modifier decomposes on the same footing, since the severity-adjusted
+score is the geometric mean of the adjusted components.
+
+Two limitations are worth stating rather than hiding. First, where components are
+correlated - and the dimensionality analysis above indicates they are - the split
+of shared variance between them is **partly a convention**: Shapley divides it
+evenly by axiom, the log decomposition assigns it independently, and neither is
+uniquely correct. Second, a decomposition explains the arithmetic, not the
+validity. It shows faithfully how the number was produced; it says nothing about
+whether the number is right. Those are separate defences.
+
+Contributions are reported alongside the completeness of the inputs behind them,
+so a large contribution resting on a thin evidence base is visible.
+
 ### Rationale for the dimensionality analysis
 
 The correlation matrix answers whether pairs of indicators move together. It does not answer how many *independent* things the index is measuring, and for a composite indicator that is the more consequential question. If the three pillars are largely collinear, the index has fewer effective dimensions than its structure implies, and the implicit equal weighting of the geometric mean silently over-weights whatever latent factor the pillars share — in practice, usually national income.
@@ -419,6 +461,44 @@ The underlying table records, for each country, which channels were activated, a
 tar_read(severity_effect_table) |>
   head(20) |>
   knitr::kable(digits = 3)
+```
+
+### How each country reached its score
+
+The waterfall below runs from the reference country to the published
+severity-adjusted score. Every bar is exact: the running product reproduces the
+score, it is not an attribution heuristic.
+
+```{r}
+#| fig-height: 7
+tar_read(fig_waterfall_top)
+```
+
+The same contributions as signed bars, with components whose inputs are
+incomplete drawn with a dashed outline.
+
+```{r}
+#| fig-height: 6
+tar_read(fig_contributions_top)
+```
+
+Per-country summary: which component drives the score, which pulls it down, and
+how much of it comes from the crisis modifier.
+
+```{r}
+tar_read(decomposition_summary) |>
+  head(25) |>
+  knitr::kable(digits = 3,
+               caption = "Score decomposition summary, highest risk first")
+```
+
+The decomposition for any other country is available from the precomputed
+object, for example:
+
+```{r}
+#| eval: false
+create_decomposition_waterfall(tar_read(risk_decomposition),
+                               country = "Angola", level = "indicator")
 ```
 
 ### Data completeness

@@ -265,9 +265,24 @@ row_geometric_mean <- function(df, cols, min_n = 1, eps = 1e-4) {
 #' logit_shift(0.35, 1.2)
 #' logit_shift(c(0.2, 0.5, 0.9), 0.5)
 logit_shift <- function(p, delta, eps = 1e-3) {
-  p <- pmin(pmax(p, eps), 1 - eps)
+  delta <- rep_len(delta, length(p))
   delta[is.na(delta)] <- 0
-  stats::plogis(stats::qlogis(p) + delta)
+
+  clamped <- pmin(pmax(p, eps), 1 - eps)
+  out <- stats::plogis(stats::qlogis(clamped) + delta)
+
+  # Clamping the input can push a score that was already at the boundary the
+  # WRONG way: logit_shift(1, 0.5) would return 0.9995, i.e. a positive shift
+  # that lowers the value. Enforce the direction of `delta` so the adjustment is
+  # always monotone and delta == 0 is exactly the identity.
+  up <- !is.na(p) & delta > 0
+  down <- !is.na(p) & delta < 0
+  flat <- !is.na(p) & delta == 0
+  out[up] <- pmax(out[up], p[up])
+  out[down] <- pmin(out[down], p[down])
+  out[flat] <- p[flat]
+
+  out
 }
 
 #' Invert a 0-10 scale

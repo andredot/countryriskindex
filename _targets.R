@@ -120,6 +120,24 @@ list(
   # Data completeness
   tar_target(map_completeness, createmap_completeness(risk_score)),
 
+  # Score decomposition. This is the computationally expensive part of the
+  # explanation (exact Shapley values per pillar, per country), so it is
+  # computed ONCE here and read by the report and the Shiny app rather than
+  # recalculated on the fly.
+  tar_target(risk_decomposition,
+             build_decomposition(risk_score,
+                                 reference_quantiles = reference_quantiles)),
+  tar_target(decomposition_summary, risk_decomposition$summary),
+  tar_target(fig_waterfall_top,
+             create_decomposition_waterfall(
+               risk_decomposition,
+               country = risk_decomposition$summary$country[1],
+               level = "indicator")),
+  tar_target(fig_contributions_top,
+             create_contribution_bars(
+               risk_decomposition,
+               country = risk_decomposition$summary$country[1])),
+
   # Validation: correlation (are we measuring similar or different things?)
   # and PCA (how many independent things are we actually measuring?)
   tar_target(pca_validation, run_pca_validation(risk_score)),
@@ -168,8 +186,14 @@ list(
   # tar_quarto(disease_clustering, here::here("reports/disease_clustering.qmd")),
 
   # SHINY APP
+  # NOTE: this target builds the app object; it does not launch it. To open the
+  # explorer interactively:
+  #   targets::tar_load(c(risk_score, radar_data, corrected_radar_data,
+  #                       risk_decomposition))
+  #   run_app(risk_score, radar_data, corrected_radar_data, risk_decomposition)
   tar_target(shiny_explorer,
-             run_app(risk_score, radar_data, corrected_radar_data),
+             run_app(risk_score, radar_data, corrected_radar_data,
+                     risk_decomposition),
              cue = tar_cue(mode = "always")),
 
   # Decide what to share with other, and do it in a standard RDS format
