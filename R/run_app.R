@@ -1,3 +1,6 @@
+# `%||%` is only in base R from 4.4.0.
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
 #' Launch the Country Risk Explorer Shiny Application
 #'
 #' This function initializes and launches an interactive Shiny web application
@@ -24,11 +27,15 @@
 #'  `NULL` the decomposition tab reports that it is unavailable rather than
 #'  failing.
 #'
-#' @return This function does not return a value. It launches a Shiny
-#' application in the user's default web browser.
+#' The returned app object is self-contained: it carries its own copy of the
+#' plotting helpers, so it still runs after being restored with
+#' `targets::tar_read(shiny_explorer)` in a session where `tar_source()` has not
+#' been called. See `self_contained()`.
+#'
+#' @return A `shiny.appobj`. Printing it (which is what happens when it is
+#'   returned at the console) or passing it to [shiny::runApp()] launches the
+#'   app in the user's default web browser.
 #' @export
-`%||%` <- function(x, y) if (is.null(x)) y else x
-
 run_app <- function(raw_data,
                     radar_data,
                     corrected_radar_data,
@@ -76,7 +83,7 @@ run_app <- function(raw_data,
         )
       )
     ),
-    server = function(input, output) {
+    server = self_contained(function(input, output) {
       # The decomposition is read, never recomputed: build_decomposition()
       # enumerates Shapley coalitions per country and belongs in the pipeline.
       no_decomp <- function(msg) {
@@ -185,16 +192,20 @@ run_app <- function(raw_data,
                                                   fill = risk_type)) +
           ggplot2::geom_col(width = 1, color = "white", alpha = 0.7) +
           ggplot2::geom_hline(yintercept = 0, color = "black") +
-          ggplot2::geom_segment(ggplot2::aes(x = selected_overall_bin,
-                                             xend = selected_overall_bin,
-                                             y = 0, yend = overall_y),
-                                color = "deeppink", linetype = "dashed",
-                                linewidth = 1.2, inherit.aes = FALSE) +
-          ggplot2::geom_segment(ggplot2::aes(x = selected_severity_bin,
-                                             xend = selected_severity_bin,
-                                             y = 0, yend = severity_y),
-                                color = "blue", linetype = "dashed",
-                                linewidth = 1.2, inherit.aes = FALSE) +
+          # annotate(), not geom_segment(aes()): a single constant segment
+          # would otherwise be drawn once per row of binned_data.
+          ggplot2::annotate("segment",
+                            x = selected_overall_bin,
+                            xend = selected_overall_bin,
+                            y = 0, yend = overall_y,
+                            color = "deeppink", linetype = "dashed",
+                            linewidth = 1.2) +
+          ggplot2::annotate("segment",
+                            x = selected_severity_bin,
+                            xend = selected_severity_bin,
+                            y = 0, yend = severity_y,
+                            color = "blue", linetype = "dashed",
+                            linewidth = 1.2) +
           ggplot2::geom_text(data = data.frame(bin = selected_overall_bin,
                                                count = overall_y),
                              ggplot2::aes(
@@ -346,6 +357,42 @@ run_app <- function(raw_data,
         createmap_adjusted_risk_score(raw_data, input$country)
       })
 
-    }
+    })
   )
+}
+
+#' Make a closure carry the functions it depends on
+#'
+#' Functions loaded with `targets::tar_source()` live in the global environment,
+#' and R serialises the global environment *by reference*, not by value. A Shiny
+#' app built inside the pipeline and restored with `tar_read()` would therefore
+#' look its helpers (`create_decomposition_waterfall()`,
+#' `createmap_adjusted_risk_score()`, ...) up in the *reading* session's global
+#' environment, where they normally do not exist.
+#'
+#' This copies every function defined in the global environment into a private
+#' environment that is serialised together with `fun`, alongside the local
+#' variables `fun` closes over (the data passed to [run_app()]). When the
+#' package is loaded as a namespace (installed, or via `devtools::load_all()`)
+#' the namespace itself is restored on read, so `fun` is returned unchanged.
+#'
+#' @param fun A closure, typically a Shiny server function.
+#' @return `fun`, with an environment that no longer depends on the caller's
+#'   global environment for functions defined there.
+#' @noRd
+self_contained <- function(fun) {
+  if (!identical(topenv(environment(fun)), globalenv())) return(fun)
+
+  helpers <- new.env(parent = globalenv())
+  for (nm in ls(globalenv(), all.names = TRUE)) {
+    f <- get(nm, envir = globalenv())
+    if (is.function(f) && identical(environment(f), globalenv())) {
+      environment(f) <- helpers
+      assign(nm, f, envir = helpers)
+    }
+  }
+
+  environment(fun) <- list2env(as.list(environment(fun), all.names = TRUE),
+                               parent = helpers)
+  fun
 }

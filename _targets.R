@@ -187,10 +187,10 @@ list(
 
   # SHINY APP
   # NOTE: this target builds the app object; it does not launch it. To open the
-  # explorer interactively:
-  #   targets::tar_load(c(risk_score, radar_data, corrected_radar_data,
-  #                       risk_decomposition))
-  #   run_app(risk_score, radar_data, corrected_radar_data, risk_decomposition)
+  # explorer interactively, from a fresh session:
+  #   targets::tar_read(shiny_explorer)
+  # The object carries its own copy of the helper functions (see
+  # self_contained() in R/run_app.R), so tar_source() is not needed first.
   tar_target(shiny_explorer,
              run_app(risk_score, radar_data, corrected_radar_data,
                      risk_decomposition),
