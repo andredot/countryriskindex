@@ -250,6 +250,18 @@ $$
 
 Comparing $s_j$ with the nominal weight shows where the effective weighting departs from the design.
 
+#### Why effective weights can depart from the design
+
+Effective weights live in log space, and log space magnifies values close to zero. Quantile normalisation maps every country at or below the reference 1st percentile to exactly 0, which the geometric mean clamps to $10^{-4}$: a log of $-9.2$, against roughly $-1$ for a typical country. Countries bunched just above the lower bound produce values like 0.01-0.05, with logs of $-4.6$ to $-3.0$. A handful of such countries can therefore account for most of a component's log variance, and through it for most of the cross-country variance of the index, leaving other components with little effective weight even though they rank countries just as clearly. The same happens inside a pillar when one sub-component is 0, as with an INFORM score of 10 once inverted.
+
+This is a property of combining a geometric mean with a scale whose zero is arbitrary (the 1st-percentile country), not of the indicators. The pipeline therefore reports, for each component, how many countries sit on or near the bounds and how much of its log variance they contribute, and recomputes the structural score under three alternatives:
+
+| Variant | Change | Trade-off |
+|---|---|---|
+| Floored | Components mapped onto $[0.1, 1]$ before the geometric mean, like the minimum goalposts of the Human Development Index | Keeps the geometric mean and the distances between countries; the floor is a choice |
+| Percentile | Each component replaced by its percentile rank | Effective weights equal by construction; discards the size of the gaps between countries |
+| Arithmetic | Arithmetic mean of the current components | No log-space magnification; fully compensatory, contrary to the framework |
+
 #### Limits of the decomposition
 
 Where components are correlated, how shared variance is split between them is partly a convention: Shapley divides it evenly by axiom, Pratt's measure by covariance, and neither is uniquely correct. And a decomposition explains the arithmetic, not the validity: it shows faithfully how a number was produced, not whether the number is right.
@@ -409,6 +421,45 @@ gw$indicator |>
     "with complete indicators)"))
 ```
 
+#### Diagnosis: scale and aggregation
+
+The scale of each component, on the countries scored in this run. `log_var_from_near_zero` is the share of the component's log variance contributed by countries scoring below 0.05:
+
+```{r}
+tar_read(component_scale_diagnostics) |>
+  knitr::kable(digits = 3, caption = "Scale of each component")
+```
+
+Inside the pillars: sub-components at 0 collapse the pillar's geometric mean. The benchmark rows give the Spearman correlation between our pillar and INFORM's own headline dimension:
+
+```{r}
+tar_read(pillar_diagnostics) |>
+  knitr::kable(digits = 3, caption = "Sub-components of vulnerability and capacity")
+```
+
+The effective weights under the alternative methods, and how much each would change the rankings:
+
+```{r}
+#| fig-height: 5
+tar_read(fig_scoring_variants)
+```
+
+```{r}
+sv <- tar_read(scoring_variants)
+sv$summary |>
+  knitr::kable(digits = 3, caption = glue(
+    "Agreement of each variant with the published method ({sv$n} countries; ",
+    "overlap of the top {sv$top_n})"))
+```
+
+```{r}
+tar_read(scoring_floor_sensitivity) |>
+  knitr::kable(digits = 3,
+               caption = "Variance shares of the floored variant by floor")
+```
+
+If the weights move substantially with the floor, they are driven by the few countries nearest to zero rather than by the bulk of the distribution, and the floored or percentile formulation should be preferred.
+
 ### How each country reached its score
 
 From the reference country to the published severity-adjusted score, for the highest-risk country. The running product reproduces the score exactly:
@@ -523,7 +574,7 @@ if (!is.null(cmp)) {
 
 - **No external validation.** The analyses establish internal consistency and dimensionality, not predictive validity. Convergent comparison against other published indices is the natural next step.
 - **No uncertainty or sensitivity analysis.** Scores are point estimates. The effective weights show how much each component drives the ranking under the current design, but the effect of alternative normalisation, aggregation or weighting choices on the rankings is not quantified.
-- **Equal nominal weights.** The 1/3 weights are a convention inherited from INFORM, not an estimate. The effective weights depart from them wherever components differ in spread or are correlated.
+- **Equal nominal weights.** The 1/3 weights are a convention inherited from INFORM, not an estimate. The effective weights depart from them wherever components differ in spread or are correlated, and under the current scale they are sensitive to the few countries nearest the lower bound (see [Diagnosis: scale and aggregation]).
 - **Heterogeneous input vintages.** HAQI derives from GBD 2019 and has no regular update cycle. WHO indicators use the latest year available per country, which differs systematically between well- and poorly-measured countries; the reference years (`year_uhc`, `year_doctors`) are kept so the spread can be inspected.
 - **National crisis scope.** Crisis severity is applied at national level, so a geographically limited crisis affects the whole country. Routing and bounding reduce this distortion but do not remove its cause; sub-national scoping is deferred.
 - **General-population estimates.** Expatriate and workforce populations have different age structures and exposures, and no demographic adjustment is applied.

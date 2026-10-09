@@ -60,6 +60,7 @@ preprocess_haq_index <- function(db = NULL, loc_keys = NULL) {
 #' @export
 preprocess_inform <- function(db_risk = NULL,
                               db_lcc = NULL) {
+  db_raw <- db_risk
   db_risk <- db_risk |>
     dplyr::transmute(
       country = `COUNTRY`,
@@ -75,6 +76,16 @@ preprocess_inform <- function(db_risk = NULL,
       food_sec = as.double(`Food Security`),                             # 37-40
       gov_effectivess = as.double(`Governance`),                         # 42-43
     )
+
+  # INFORM's own headline dimensions, kept as external benchmarks only (they
+  # are never scored): they show whether our vulnerability and capacity
+  # pillars rank countries the way INFORM does. Absent columns give NA.
+  benchmark <- function(db, col) {
+    if (col %in% names(db)) suppressWarnings(as.double(db[[col]])) else
+      rep(NA_real_, nrow(db))
+  }
+  db_risk$inform_vulnerability <- benchmark(db_raw, "VULNERABILITY")
+  db_risk$inform_lack_coping <- benchmark(db_raw, "LACK OF COPING CAPACITY")
 
   db_lcc <- db_lcc |>
     dplyr::slice(-1, -2)

@@ -138,6 +138,14 @@ list(
              create_global_weights_plot(global_weights, "component")),
   tar_target(fig_global_weights_indicator,
              create_global_weights_plot(global_weights, "indicator")),
+  # Why a component's effective weight departs from 1/3, and how alternative
+  # scale/aggregation choices would change the weights and the rankings.
+  tar_target(component_scale_diagnostics,
+             diagnose_component_scales(risk_score, reference_quantiles)),
+  tar_target(pillar_diagnostics, diagnose_pillar_internals(risk_score)),
+  tar_target(scoring_variants, compare_scoring_variants(risk_score)),
+  tar_target(fig_scoring_variants, create_variant_weights_plot(scoring_variants)),
+  tar_target(scoring_floor_sensitivity, floor_sensitivity(risk_score)),
 
   # Validation: correlation (are we measuring similar or different things?)
   # and PCA (how many independent things are we actually measuring?)

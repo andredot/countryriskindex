@@ -64,18 +64,10 @@ summarise_global_weights <- function(decomposition, include_severity = TRUE) {
 
   summarise_terms <- function(m, meta) {
     m <- m[stats::complete.cases(m), , drop = FALSE]
-    total <- rowSums(m)
-    sd_t <- stats::sd(total)
-    ok <- nrow(m) >= 3 && is.finite(sd_t) && sd_t > 0
-    beta <- if (ok) apply(m, 2, stats::sd) / sd_t else NA_real_
-    share <- if (ok) {
-      apply(m, 2, function(x) stats::cov(x, total)) / stats::var(total)
-    } else {
-      NA_real_
-    }
+    vs <- variance_shares(m)
     out <- meta[match(colnames(m), meta$term), , drop = FALSE]
-    out$std_beta <- unname(beta)
-    out$variance_share <- unname(share)
+    out$std_beta <- vs$std_beta
+    out$variance_share <- vs$variance_share
     out$mean_abs_contribution <- unname(colMeans(abs(m)))
     rownames(out) <- NULL
     list(table = out, n = nrow(m))
@@ -137,6 +129,31 @@ summarise_global_weights <- function(decomposition, include_severity = TRUE) {
     n_component = comp_res$n,
     n_indicator = ind_res$n,
     target = if (include_severity) "severity_adjusted_risk" else "overall_risk"
+  )
+}
+
+#' Standardised betas and variance shares of an additive score
+#'
+#' For a score that is the exact sum of the columns of `m` (one row per
+#' country), returns each column's standardised beta `sd(c_j) / sd(T)` and its
+#' share of the variance of the total, `cov(c_j, T) / var(T)`, which sum to 1.
+#'
+#' @param m Numeric matrix of complete contributions, one column per term.
+#' @return A list with named numeric vectors `std_beta` and `variance_share`
+#'   (`NA` when fewer than three rows or a constant total).
+#' @export
+variance_shares <- function(m) {
+  m <- as.matrix(m)
+  total <- rowSums(m)
+  sd_t <- if (nrow(m) >= 3) stats::sd(total) else NA_real_
+  if (!is.finite(sd_t) || sd_t <= 0) {
+    na <- stats::setNames(rep(NA_real_, ncol(m)), colnames(m))
+    return(list(std_beta = na, variance_share = na))
+  }
+  list(
+    std_beta = apply(m, 2, stats::sd) / sd_t,
+    variance_share = apply(m, 2, function(x) stats::cov(x, total)) /
+      stats::var(total)
   )
 }
 
