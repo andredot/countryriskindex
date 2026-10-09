@@ -12,36 +12,56 @@ createmap(
   palette = "YlOrRd",
   legend_title = "Legend",
   label_prefix = "Value:",
-  zoom_to_country = NULL
+  zoom_to_country = NULL,
+  basemap = getOption("countryriskindex.basemap")
 )
 }
 \arguments{
 \item{data}{A data frame containing the values to be mapped. Must include a
 country code column.}
 
-\item{join_key}{Column name in the world map data to join on (default is
-\code{"iso_a3"}).}
+\item{join_key}{Unused; kept for backward compatibility. Countries are
+matched on the Natural Earth \code{adm0_a3} code.}
 
-\item{data_key}{Column name in \code{data} to join with \code{join_key}.}
+\item{data_key}{Column name in \code{data} holding the ISO3 code.}
 
 \item{value_column}{Column in \code{data} containing the values to visualize.}
 
 \item{palette}{Name of the color palette to use (e.g., \code{"YlOrRd"},
-\code{"viridis"}).}
+\code{"viridis"}), or a vector of colours.}
 
 \item{legend_title}{Title for the map legend.}
 
 \item{label_prefix}{Prefix for the tooltip label (default is \code{"Value:"}).}
 
 \item{zoom_to_country}{Optional country name to zoom into on the map.}
+
+\item{basemap}{\code{NULL} (default) for no tiles, or a \code{leaflet::providers}
+name. See the Basemap section.}
 }
 \value{
 A \code{leaflet} map object.
 }
 \description{
 Creates an interactive choropleth map using \code{leaflet}, allowing dynamic
-specification of the data source,
-value column, color palette, and legend. It supports optional zooming to a
-specific country and is designed
-to generalize mapping logic across multiple datasets.
+specification of the data source, value column, color palette, and legend.
+It supports optional zooming to a specific country and is designed to
+generalize mapping logic across multiple datasets.
 }
+\section{Basemap}{
+
+By default no third-party tiles are loaded: the countries are drawn from
+Natural Earth polygons on a plain background, so the map works offline,
+inside self-contained reports and in the RStudio viewer. The standard
+OpenStreetMap tile servers enforce a usage policy that blocks requests
+without a valid \code{Referer} header - which is exactly what an embedded report
+or a \verb{file://} page sends - so maps built on \code{addTiles()} render blank.
+
+A tiled basemap can still be requested through \code{basemap}, using any
+provider name known to \code{leaflet::providers} (for example
+\code{"CartoDB.PositronNoLabels"}). Check that provider's terms of use for your
+context first; several require a key or a licence for commercial use. The
+default can be set once per session with
+\code{options(countryriskindex.basemap = "<provider>")}.
+}
+

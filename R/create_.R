@@ -3,22 +3,38 @@
 #' Generate a Flexible Interactive Choropleth Map
 #'
 #' Creates an interactive choropleth map using `leaflet`, allowing dynamic
-#' specification of the data source,
-#' value column, color palette, and legend. It supports optional zooming to a
-#' specific country and is designed
-#' to generalize mapping logic across multiple datasets.
+#' specification of the data source, value column, color palette, and legend.
+#' It supports optional zooming to a specific country and is designed to
+#' generalize mapping logic across multiple datasets.
+#'
+#' @section Basemap:
+#' By default no third-party tiles are loaded: the countries are drawn from
+#' Natural Earth polygons on a plain background, so the map works offline,
+#' inside self-contained reports and in the RStudio viewer. The standard
+#' OpenStreetMap tile servers enforce a usage policy that blocks requests
+#' without a valid `Referer` header - which is exactly what an embedded report
+#' or a `file://` page sends - so maps built on `addTiles()` render blank.
+#'
+#' A tiled basemap can still be requested through `basemap`, using any
+#' provider name known to `leaflet::providers` (for example
+#' `"CartoDB.PositronNoLabels"`). Check that provider's terms of use for your
+#' context first; several require a key or a licence for commercial use. The
+#' default can be set once per session with
+#' `options(countryriskindex.basemap = "<provider>")`.
 #'
 #' @param data A data frame containing the values to be mapped. Must include a
 #'  country code column.
-#' @param join_key Column name in the world map data to join on (default is
-#'  `"iso_a3"`).
-#' @param data_key Column name in `data` to join with `join_key`.
+#' @param join_key Unused; kept for backward compatibility. Countries are
+#'   matched on the Natural Earth `adm0_a3` code.
+#' @param data_key Column name in `data` holding the ISO3 code.
 #' @param value_column Column in `data` containing the values to visualize.
 #' @param palette Name of the color palette to use (e.g., `"YlOrRd"`,
-#'  `"viridis"`).
+#'  `"viridis"`), or a vector of colours.
 #' @param legend_title Title for the map legend.
 #' @param label_prefix Prefix for the tooltip label (default is `"Value:"`).
 #' @param zoom_to_country Optional country name to zoom into on the map.
+#' @param basemap `NULL` (default) for no tiles, or a `leaflet::providers`
+#'   name. See the Basemap section.
 #'
 #' @return A `leaflet` map object.
 #' @export
@@ -35,7 +51,8 @@ createmap <- function(data = NULL,
                       palette = "YlOrRd",
                       legend_title = "Legend",
                       label_prefix = "Value:",
-                      zoom_to_country = NULL) {
+                      zoom_to_country = NULL,
+                      basemap = getOption("countryriskindex.basemap")) {
   # Fail with a usable message rather than a tidyselect error from deep inside
   # the join. The default data_key ("REF_AREA") suits the UN-style inputs, but
   # most tables here are keyed on ISO_A3.
@@ -60,45 +77,65 @@ createmap <- function(data = NULL,
     )
   }
 
-  # Load world map
+  # Natural Earth countries, without Antarctica (no data, and it dominates a
+  # world view in Web Mercator).
   world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+  world <- world[world$adm0_a3 != "ATA", ]
 
-  # Join data to map
   map_data <- dplyr::left_join(world, data, by = setNames(data_key, "adm0_a3"))
+  values <- suppressWarnings(as.numeric(map_data[[value_column]]))
 
-  # Create base leaflet map
-  leafmap <- leaflet::leaflet(map_data) |>
-    leaflet::addTiles() |>
+  pal <- leaflet::colorNumeric(palette, values, na.color = "#d9d9d9")
+  labels <- lapply(
+    sprintf("<strong>%s</strong><br/>%s %s",
+            htmltools::htmlEscape(map_data$name), label_prefix,
+            ifelse(is.na(values), "no data", formatC(values, digits = 3,
+                                                     format = "fg"))),
+    htmltools::HTML
+  )
+
+  leafmap <- leaflet::leaflet(
+    map_data,
+    options = leaflet::leafletOptions(worldCopyJump = TRUE, minZoom = 1)
+  )
+
+  if (is.null(basemap)) {
+    # No tiles: give the "sea" a colour so the countries read as land.
+    leafmap <- htmlwidgets::prependContent(
+      leafmap,
+      htmltools::tags$style(".leaflet-container { background: #eef3f7; }")
+    )
+  } else {
+    leafmap <- leaflet::addProviderTiles(leafmap, basemap)
+  }
+
+  leafmap <- leafmap |>
     leaflet::addPolygons(
-      fillColor = ~leaflet::colorNumeric(
-        palette, map_data[[value_column]],
-        na.color = "#cccccc")(map_data[[value_column]]),
-      weight = 1,
+      fillColor = pal(values),
+      weight = 0.6,
       opacity = 1,
       color = "white",
-      dashArray = "3",
-      fillOpacity = 0.7,
-      highlight = leaflet::highlightOptions(
+      fillOpacity = if (is.null(basemap)) 0.9 else 0.7,
+      highlightOptions = leaflet::highlightOptions(
         weight = 2,
-        color = "#666",
-        dashArray = "",
-        fillOpacity = 0.7,
+        color = "#555555",
+        fillOpacity = 0.95,
         bringToFront = TRUE
       ),
-      label = ~paste(name, "<br>", label_prefix, map_data[[value_column]])
+      label = labels
     ) |>
     leaflet::addLegend(
-      pal = leaflet::colorNumeric(palette, map_data[[value_column]]),
-      values = map_data[[value_column]],
+      pal = pal,
+      values = values,
       title = legend_title,
+      na.label = "No data",
       position = "bottomright"
     )
 
   # Optional zoom to country
-  if (!is.null(zoom_to_country)) {
-    selected_shape <- map_data |>
-      dplyr::filter(country == zoom_to_country)
-    # sf::st_union() # merge multiple geometries into one
+  if (!is.null(zoom_to_country) && "country" %in% names(map_data)) {
+    selected_shape <- map_data[!is.na(map_data$country) &
+                                 map_data$country == zoom_to_country, ]
     if (nrow(selected_shape) > 0) {
       bounds <- sf::st_bbox(selected_shape)
       leafmap <- leafmap |>
@@ -110,7 +147,7 @@ createmap <- function(data = NULL,
         )
     }
   }
-  return(leafmap)
+  leafmap
 }
 
 
