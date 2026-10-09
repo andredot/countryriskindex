@@ -131,6 +131,13 @@ list(
              create_contribution_bars(
                risk_decomposition,
                country = risk_decomposition$summary$country[1])),
+  # Effective weights across all countries (standardised betas and variance
+  # shares of the exact decomposition), as opposed to the nominal 1/3 each.
+  tar_target(global_weights, summarise_global_weights(risk_decomposition)),
+  tar_target(fig_global_weights_component,
+             create_global_weights_plot(global_weights, "component")),
+  tar_target(fig_global_weights_indicator,
+             create_global_weights_plot(global_weights, "indicator")),
 
   # Validation: correlation (are we measuring similar or different things?)
   # and PCA (how many independent things are we actually measuring?)

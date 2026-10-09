@@ -67,69 +67,32 @@ htmltools::img(
 
 ```
 
-## Objective
+## Purpose
 
-The main objective of this work is to describe in detail the methodology adopted for the construction of a Country Health Risk Index, illustrating the phases of variable selection, data normalization, weighting, and aggregation. Particular attention will be paid to the theoretical and practical justification of the methodological choices, in order to ensure the consistency and robustness of the index.
+This document sets out how the Country Health Risk Index is built and, above all, **why** each methodological choice was made: which indicators enter, how they are normalised, weighted and aggregated, how acute crises modify the structural score, and how every score can be explained and checked. Results are reported to illustrate those choices, not as an end in themselves.
 
-A further fundamental objective is the validation of the index itself, through the use of statistical techniques and comparisons with existing measures, in order to verify its reliability, stability, and ability to faithfully represent the phenomenon under study.
+## Framework
 
-## Introduction
+Risk is conventionally described by three dimensions: hazard, vulnerability and lack of coping capacity. The index keeps that structure and adds two modifiers that place the estimate in a specific time and place.
 
-### Health Risk
+| Level | What it captures | Enters the index as |
+|---|---|---|
+| Hazard | The baseline burden of disease and injury in the population | Component (1/3 of the structural score) |
+| Vulnerability | Social and structural conditions that make people more susceptible to harm | Component (1/3) |
+| Coping capacity | The health system's ability to respond effectively | Component (1/3, inverted: less capacity = more risk) |
+| Crisis severity | Extraordinary events (conflict, epidemics, disasters) that temporarily alter all of the above | Bounded modifier on each component |
+| Site proximity | How access to care at a specific worksite differs from the national average | Odds-based modifier on the country score |
 
-The concept of risk is inherently complex, especially when applied to the context of health. Starting from the definition of health, it is not simply the absence of disease. In this framework, health risk can be understood as any factor that threatens or compromises this state of well-being. Within a country, health risk manifests itself on five distinct levels:
-
-<aside>Risk is traditionally conceptualised as 3 dimensions: Hazard, Vulnerability and Lack of Coping Capacity. In this work we add two additional dimension (Severity and Proximity) to better estimate Risk in a particular time and a particular place.</aside>
-
--   the first concerns the basic health situation, i.e., the average health conditions and access to services for the entire population as a whole. This defines differences in disease rates between countries;
-
--   the second level reflects inequalities in equity of access and quality of care between different social groups or geographical areas, highlighting the ability of the health system to ensure equitable coverage of acceptable quality. Those are usually the observed vulnerabilities of a system;
-
--   the third level reflects the coping capacity (or lack of it), defined as the ability of the system to respond in an effective way to the health needs of the existing population;
-
--   the fourth level is represented by extraordinary events or crises – such as epidemics, natural disasters, or conflicts, which can abruptly and temporarily alter the collective health status;
-
--   the fifth level adapts a country-level score to the geographical location of a worksite. This directly impacts how care access is delayed and how a specific area is different from the whole country situation.
-
-Analyzing health risk in these dimensions allows for a better understanding of the resilience and effectiveness of a national health system, consequently providing a reliable estimate of the level of health risk in the country and in a particular place inside it.
-
-### Proposed changes compared to the previous version
-
-The previous version of the Country Risk Index was structured in the same main components. Within the hazard factors, a further distinction was made between biological, environmental, and human risks, with particular emphasis on five communicable diseases as key indicators.
-
-In version 4.0 a new structure was proposed that is more robust from a methodological point of view: biological risk factors have been replaced by aggregate estimates of mortality and disability, derived from sources such as the Global Burden of Disease. Instead of considering individual diseases, an overall rate is now used that represents the risk of death or illness from all causes, providing a more objective, comparable, and representative measure of actual health risk.
-
-Vulnerability, Capacity and Severity (formerly Crisis modifier) data sources have been expanded, updated, grounded in theory and combined using also geometric averages to highlight the importance at the same time of different co-existing factors.
-
-Proximity adjustment (formerly Medical Support Study Plan) has been streamlined considering only the delay to access healthcare for each location, and expanded the list of contingencies that may modify the local health situation.
-
-#### Changes introduced in version 4.10
-
-Version 4.10 does not change the conceptual framework. It corrects five behaviours in the implementation that were distorting the results, and adds the diagnostics needed to see when they recur.
-
-- **The crisis modifier no longer overrides the structural model.** In v4.00 the severity adjustment was a convex pull towards 1.0: at severity 5 it returned exactly 1.0 for every country, and at severity 3 it imposed a floor of 0.5, regardless of hazard, vulnerability or capacity. Half a point of INFORM Severity moved the index more than doubling measured vulnerability. Severity is now routed onto the individual components it acts on and applied as a bounded shift on the log-odds scale (see [Rationale for estimating Crisis Severity]).
-- **Normalisation is frozen and consistent.** All three components now use the same quantile normalisation against a reference distribution fixed in 2025, so a country's score no longer moves because *other* countries moved. The hazard score previously divided by the observed maximum, making every country hostage to a single extreme observation.
-- **Doctor density is normalised.** It previously entered the capacity geometric mean as a raw rate spanning roughly 0.1 to 85 while the other three components spanned 0 to 100, carrying several times their combined influence.
-- **Thin evidence bases are flagged rather than hidden.** Countries whose score rests on too few underlying indicators are marked `low_confidence` and their completeness is published alongside the score.
-- **Validation is extended with a dimensionality check.** The correlation matrix shows whether indicators capture similar or different things; a principal component analysis now also shows how many independent dimensions the index is actually measuring.
-
-**Inputs have been reduced to those the pipeline actually uses.** Several datasets were being downloaded, parsed and joined without any downstream function reading them: six of the eight WHO indicator files, the UN IGME under-5 mortality extract, and the INFORM headline aggregates. These are no longer fetched, and `sources.md` is now the authoritative list of what must be refreshed. Only two WHO indicators reach the index — UHC service coverage and density of doctors, both in the capacity component.
-
-The GBD extract has also changed shape. Version 4.00 selected ten causes by hard-coded identifier and built an "Other NCDs" aggregate from ten more; both were fragile across GBD rounds and arbitrary in composition. The request is now "All causes" plus all level-2 causes, and the pipeline pivots whatever causes the file contains rather than naming them in code. Only the all-cause rate feeds the hazard score; the level-2 causes drive the radar decomposition and the correlation matrix, where they show which burdens dominate in a given country.
-
-Two changes to scope: the legacy CRPI spreadsheets are no longer imported, and comparisons are made against the previous run of this pipeline instead. Site-level proximity adjustment is unchanged in this release and is scheduled for revision separately.
+The **structural risk** (`overall_risk`) is the geometric mean of the three components. The **severity-adjusted risk** (`severity_adjusted_risk`), the headline result, is the geometric mean of the same three components after the crisis modifier. The site-level adjustment is applied on top for individual worksites.
 
 ## Methods
 
-### Analytical pipeline
+### Pipeline and reproducibility
 
-The flowchart provides a comprehensive overview of the methodology used to construct the Country Health Risk Index. It outlines the integration of multiple data sources—including the Global Burden of Disease (GBD) for risk factors, WHO and EU JRC INFORM indices for the other components (Proximity adjustment not shown).
+The index is computed by an R package orchestrated with `targets`, with dependencies pinned by `renv` and this report rendered by Quarto from the pipeline's outputs. Every function is documented in the package manual. Two design rules keep the results reproducible:
 
-Data from these input sources are transformed into standardized indicators through processes such as rate calculation and log-transformation. The final index is computed as the geometric mean of its core components, offering a balanced representation of health risk across countries. The results are then visualized using maps, radar and scatter plots to facilitate interpretation and comparison.
-
-The analytical workflow was implemented using the R 4.5 programming language. Data manipulation and cleaning were conducted using the `tidyverse` suite of packages, while `ggplot2` and `plotly` were employed to generate both static and interactive visualizations. Geospatial visualizations were supported through the use of `leaflet` and `rnaturalearth` for mapping. The project structure was based on a reproducible template incorporating `renv` for dependency management and `targets` for pipeline orchestration. Final outputs and documentation were rendered using `Quarto`, ensuring consistency, transparency, and reproducibility throughout the analytical process.
-
-Every function used to manipulate raw data has been documented with `roxygen` and is available in the package manual `countryhealthrisk`, which has been published together with this work.
+- **One definition of each step.** The list of input files (`risk_input_files()`) and the scoring chain (`score_risk()`) are each defined once and used by the pipeline and by the interactive tools alike, so a score computed in an app is identical to the one in this report.
+- **Inputs are only what the index reads.** Datasets that no downstream function used have been removed; `sources.md` is the authoritative list of what must be refreshed for a new round.
 
 ```{r, eval=FALSE}
 targets::tar_visnetwork(
@@ -141,321 +104,265 @@ targets::tar_visnetwork(
 )
 ```
 
-### Data Sources
+### Data sources
 
-#### Global Burden of Disease
+| Source | Indicators used | Component |
+|---|---|---|
+| IHME Global Burden of Disease (GBD) | DALY rate per 100,000, all causes | Hazard |
+| | DALY rates for level-2 causes | Not scored: radar profiles and correlation analysis only |
+| IHME Healthcare Access and Quality index (HAQI, GBD 2019) | HAQ index, 0-100 | Capacity: services |
+| WHO Global Health Observatory | UHC service coverage index (9A706FD) | Capacity: financing |
+| | Density of medical doctors (217795A) | Capacity: resources |
+| EU JRC INFORM Risk | Socio-economic vulnerability; uprooted people; food security; physical infrastructure; governance | Vulnerability, capacity |
+| EU JRC INFORM Risk, Lack of Coping Capacity sheet | Adult literacy; access to electricity; internet users; mobile subscriptions; road density; drinking water; sanitation; health expenditure per capita | Vulnerability, capacity |
+| EU JRC INFORM Severity | Severity index and its sub-dimensions; crisis drivers | Crisis modifier |
+| Crisis modifier matrix | Which channels each crisis driver acts on | Crisis modifier |
+| Medical Officer surveys and site assessments | Diagnosis and transport delays, outbreak concern, population | Site proximity |
 
-The construction of the index is based on modeled estimates from the Global Burden of Disease (GBD) project, one of the most authoritative and comprehensive sources globally for quantifying health loss due to diseases, injuries, and risk factors. The objectivity of this approach lies in the rigorous and transparent methodology adopted by the Institute for Health Metrics and Evaluation (IHME), which enables the production of comparable estimates across time and countries. These estimates are updated annually and are supported by a vast network of scientific collaborators. The GBD framework ensures that the data are mutually exclusive and collectively exhaustive, allowing for a complete and non-overlapping representation of health conditions.
+The INFORM indicators used are the published 0-10 component scores, not the raw underlying data. The import checks this explicitly: where a workbook carries both versions of an indicator, the column whose values lie in 0-10 is selected, and a layout change fails loudly rather than silently mixing scales.
 
-#### HAQI
+### Hazard: why the all-cause DALY rate
 
-The Healthcare Access and Quality Index (HAQI) is derived from the Global Burden of Disease Study 2019 (GBD 2019), developed by the Institute for Health Metrics and Evaluation (IHME). It measures personal healthcare access and quality across 204 countries and territories by evaluating mortality rates from 32 causes of death that should be preventable with timely and effective healthcare. The index is scaled from 0 (worst) to 100 (best), with higher scores indicating stronger health system performance.
+Earlier versions built hazard from a hand-picked list of communicable diseases and, later, from ten causes selected by GBD identifier plus an "other NCDs" aggregate. Both were arbitrary in composition and fragile across GBD rounds. Hazard is now the **all-cause DALY rate**:
 
-#### WHO Indicators
+- **DALYs** combine premature death and years lived with disability in one comparable unit, so each condition contributes in proportion to its actual burden and no disease weighting has to be invented.
+- **A rate** rather than a count makes countries of different size comparable and reads as the probability of a health event in a year.
+- **All causes** is mutually exclusive and collectively exhaustive by GBD construction. Level-2 causes are still extracted, but only to show *which* burdens dominate in a country (radar chart), never to score it.
 
-The data used in this analysis originates from eight CSV files provided by the World Health Organization, as part of their global reporting on various health-related indicators. Each file contains country-level health indicators, including:
+GBD estimates describe the general resident population. Expatriate workforces have different age structures and exposures; no demographic adjustment is applied (see [Limitations]).
 
--   data on household health expenditure.
--   Universal Health Coverage (UHC) service coverage index.
--   antibiotic consumption patterns.
--   density of medical doctors.
--   government expenditure on domestic health.
--   development assistance to medical research and basic health.
--   access to essential medicines at health facilities.
--   deaths due to unsafe water, sanitation, and hygiene services
+### Vulnerability: four sub-components
 
-Each dataset includes a common set of metadata columns such as GEO_NAME_SHORT (country name), DIM_TIME (year), IND_NAME (indicator name), and DIM_GEO_CODE_TYPE (geographic classification).
+Vulnerability follows the domains that the literature on social vulnerability consistently identifies (economic status, infrastructure, demographic risk and education), measured with INFORM indicators for global coverage and comparability:
 
-#### EU INFORM Risk
+| Sub-component | Built from |
+|---|---|
+| Socio-economic | INFORM socio-economic vulnerability (poverty, inequality, aid dependency) |
+| Infrastructure | Geometric mean of *communications* (mean of physical connectivity, electricity, internet, mobile) and *physical* (mean of road density, drinking water, sanitation) |
+| Vulnerable groups | Mean of uprooted people and food security |
+| Education | Adult literacy |
 
-The EU INFORM Risk Index is a composite indicator developed by the European Commission and partners to measure the risk of humanitarian crises and disasters that could overwhelm national response capacity. It integrates three dimensions: hazard and exposure, vulnerability, and lack of coping capacity. For this analysis, we focused on the vulnerability dimension, which reflects the susceptibility of populations to harm due to factors such as poverty, inequality, and access to basic services.
+All INFORM scores are oriented so that higher means better before aggregation. **Within** a sub-component indicators are averaged arithmetically, because they are alternative measures of the same thing and may substitute for each other. **Across** sub-components they are combined geometrically, because they are distinct conditions and a deficit in one is not offset by strength in another.
 
-Data were extracted from the INFORM dataset and filtered to retain only the most recent values per country. Where applicable, we harmonized country names and ensured alignment with the WHO indicators dataset.
+### Coping capacity: the HSPA functions
 
-#### EU INFORM Severity
+Capacity is defined as the system's ability to govern, raise resources, finance and deliver services, following the four functions of the WHO Health System Performance Assessment framework:
 
-The EU INFORM Severity Index is a global, evidence-based tool developed by the European Commission’s Joint Research Centre in collaboration with humanitarian partners. It provides a monthly, objective assessment of the severity of ongoing humanitarian crises, aiming to support prioritization and coordination of humanitarian response. The index integrates multiple dimensions—including impact on people, complexity of the crisis, and conditions for humanitarian access—to offer a comprehensive view of crisis severity.
+| Function | Indicator |
+|---|---|
+| Governance | INFORM governance, inverted |
+| Financing | Mean of UHC service coverage and inverted INFORM health expenditure per capita |
+| Resource generation | Doctor density, log-transformed and normalised to 0-100 |
+| Service delivery | HAQ index |
 
-For this analysis, we focused on the most recent severity scores available per country. Data were extracted from the INFORM Severity dataset and filtered to retain only the latest values. Country names were harmonized to ensure consistency with other datasets used in the project, including WHO indicators. This allowed for integrated analysis across multiple dimensions of crisis and vulnerability.
+Doctor density is the one raw rate in the index. It spans roughly 0.1 to 85 per 10,000, and before version 4.10 it entered the geometric mean unscaled, carrying several times the combined influence of the other three functions. It is now log-transformed (the distribution is heavily right-skewed) and put on the same 0-100 scale.
 
-#### Real-time Survey data from Medical Officer deployed in the different worksites
+### Normalisation: frozen quantile bounds
 
-To account for local variations in health risk within countries, real-time data are collected through routine surveys administered to Medical Officers deployed across different worksites. These surveys, designed using `Microsoft Forms`, capture key contextual information such as access to emergency services, availability of medical infrastructure, and environmental conditions. The collected data are used to inform a proximity-based adjustment to the Country Health Risk Index.
-
-This adjustment is operationalized through the `Medical Support Study and Plan (MSSP)`, a standardized checklist that quantifies site-specific health risk modifiers. Each item in the checklist contributes to a cumulative score, which is then translated into a multiplicative factor ranging from 0.5 (optimal conditions) to 1.5 (critical conditions). This factor is applied to the national risk score to reflect the actual risk level at the operational site, ensuring a more granular and responsive assessment of health threats.
-
-### Rationale for estimates of risk factors related to humans, the environment, and society
-
-The use of synthetic indicators such as Years of Life Lost (YLL) and Disability-Adjusted Life Years (DALY) enables an integrated understanding of the overall impact of health conditions, capturing both premature mortality and years lived with disability. Among the key strengths of this approach is the availability of disaggregated data by year and country, and the public accessibility of both estimates and methods, which promotes transparency and replicability of analyses. This makes GBD data a robust foundation for evidence-based health planning, helping to identify priority areas for intervention.
-
-To operationalize this data, we extract DALY rates for a curated set of causes that reflect both global and context-specific health priorities. These include all-cause DALYs, as well as specific categories such as respiratory infections, enteric infections, neglected tropical diseases, sexually transmitted infections, cardiovascular diseases, mental disorders, transport injuries, violence-related injuries, and other unintentional injuries. Additionally, we compute a composite indicator for “Other Non-Communicable Diseases (NCDs)” by aggregating DALY rates from a defined group of causes including neoplasms, chronic respiratory and digestive diseases, diabetes and kidney disorders, and others. This structured extraction ensures that each health condition contributes to the index in proportion to its actual burden on public health, thereby avoiding arbitrary weighting. However, it is important to note that for expatriate populations, tailored estimates may be necessary to reflect their specific health determinants and exposure profiles, which may differ from those of the resident population.
-
-Another key element in the construction of the index is the choice of the rate as the main unit of measurement. The rate, understood as the rate per population in a given time interval (typically one year), represents a standardized measure that allows for meaningful comparisons between countries, regions, or demographic groups, regardless of the absolute size of the population. This approach allows for capturing the probability of encountering a health event in a defined period, making the indicator not only more interpretable but also more useful for temporal monitoring and risk assessment, even in contexts where absolute numbers could be misleading.
-
-
-### Rationale for estimates of socioeconomic vulnerabilities and access to care
-
-Vulnerability is defined as the set of conditions determined by physical, social, economic, and environmental factors that increase the susceptibility of individuals or communities to the impacts of hazards. Social vulnerability, in particular, refers to the characteristics and circumstances of individuals or groups that influence their capacity to anticipate, cope with, resist, and recover from adverse events. It is shaped by structural inequalities and social determinants such as age, income, education, minority status, housing conditions, and access to healthcare.
-
-To capture this complexity, we propose that a vulnerability index should be composed of multiple indicators spanning these domains. This approach allows for a more holistic understanding of how different social and structural factors interact to shape vulnerability.
-
-This structure draws from the systematic review’s emphasis on using available global indicators to quantify social vulnerability. The review identifies key domains—economic status, infrastructure, demographic risk, and education—as critical to understanding how populations are affected during pandemics like COVID-19. The use of standardized indicators (e.g., EU INFORM, WHO) ensures comparability and evidence-based assessment across regions.
-
--   Socioeconomic vulnerability reflects the conditions of people and communities, using EU INFORM indicators 23 to 28, which cover poverty and development, inequality, and aid dependency
--   Infrastructure vulnerability assesses the resilience of buildings and services, incorporating data on unsafe water and sanitation (from WHO) and EU INFORM indicators 44 to 46 (access to electricity, internet, and mobile networks) and 48 to 50 (road density and access to improved sanitation).
--   Vulnerable groups are captured through EU INFORM indicators 29 and 30 (uprooted people) and 37 to 40 (hunger, undernourishment, and food price volatility).
--   Lastly, education vulnerability is measured through the adult literacy rate, highlighting the population’s capacity to access and use information for resilience and recovery.
-
-
-### Rationale for estimates of response capacities
-
-The HSPA (Health System Performance Assessment) Framework for Universal Health Coverage (UHC) is designed to bridge descriptive health system assessments (HSAs) with performance-oriented evaluations. It focuses on four core functions:
-
--   Governance
--   Resource Generation
--   Financing
--   Service Delivery
-
-Each function is linked to intermediate objectives (e.g. access, quality, efficiency) and final goals (e.g. health improvement, equity, financial protection, people-centeredness)
-
-To measure “capacity” in a way that is aligned with the HSPA framework, we must define capacity as the system’s ability to mobilize and manage resources, deliver services, and govern effectively.
-
-To operationalize this across the four functions, we propose a composite “Health System Capacity Index” using weighted indicators from each function, tailored to your country or region’s context.
-
-
-### Risk Index construction for each country
-
-The final calculation of the health risk index is obtained as the geometric mean of the three fundamental components: the level of exposure to health risk factors, socioeconomic vulnerability, and the response capacity of the health system. This methodological choice is directly inspired by the approach adopted by the INFORM Risk Index, which uses the geometric mean to combine conceptually distinct but interdependent dimensions.
-
-The use of the geometric mean, compared to the arithmetic mean, is particularly appropriate as it more markedly penalizes extremely low values in one of the components, reflecting the principle that a significant weakness in just one area (e.g., low response capacity) can compromise the entire system. Furthermore, this methodology prevents a very high value in one dimension from completely compensating for a critical value in another, thus ensuring a more realistic and balanced representation of overall risk.
-
-
-### Rationale for estimating Crisis Severity
-
-To enhance the contextual accuracy of our country-level health risk assessment, we integrate the EU INFORM Severity Index as a dynamic crisis modifier. The INFORM Severity Index is a composite indicator developed by the European Commission and the INFORM initiative to quantify the severity of humanitarian crises in a standardized and globally comparable way. It aggregates data across three core dimensions: the impact of the crisis (e.g. number of people affected), the conditions of those affected (e.g. vulnerability and access to services), and the complexity of the crisis (e.g. political instability, access constraints). The index ranges from 1 (low severity) to 5 (extreme severity).
-
-#### Why the version 4.00 adjustment was replaced
-
-Version 4.00 adjusted the headline score with
+Each component is scaled to 0-1 between the 1st and 99th percentile of a **reference distribution fixed in 2025**, with values beyond the bounds clipped:
 
 $$
-\text{adjusted risk} = \text{risk} + \left( \frac{\text{severity index} - 1}{4} \right) \times (1 - \text{risk})
+x^{*} = \min\!\Big(1, \max\!\Big(0, \frac{x - q_{01}}{q_{99} - q_{01}}\Big)\Big)
 $$
 
-This is a convex pull towards 1.0 rather than a modifier, and it had three consequences that were not intended when it was written.
+- **Quantiles, not min/max.** Hazard used to be divided by the observed maximum, which made every country's score hostage to one extreme observation. Percentile bounds are robust to outliers.
+- **Frozen, not recomputed.** If the bounds were recomputed each run, a country's score would move whenever *other* countries moved. With frozen bounds, a change in score always reflects a change in that country's own data. The reference is regenerated only when the index is deliberately rebased.
+- **The same rule for all three components**, so they are on a common footing before aggregation.
 
-At a severity index of 5 the expression returns exactly 1.0 for **every** country, irrespective of hazard, vulnerability or capacity: the structural model is erased. At a severity index of 3 it imposes a floor of 0.5 on every country. And its marginal effect dwarfed the components it was meant to modify — starting from a typical baseline of 0.35, moving from severity 1 to severity 2 added +0.16 to the score, whereas *doubling* a country's measured vulnerability added only +0.09, because the components are combined with a geometric mean and a doubling therefore multiplies the result by only $2^{1/3} \approx 1.26$. Half a point of severity outweighed doubling vulnerability; a full point outweighed tripling it. Since INFORM Severity's impact dimension responds to the absolute number of people affected, a geographically limited event in a populous country could move that country one or two bands on its own.
+### Aggregation: geometric means
 
-A fourth, subtler problem: countries absent from the INFORM Severity list received no adjustment at all, while countries entering it at the lowest listed severity jumped discontinuously. Appearing on the list was itself worth roughly +0.16.
+The structural score is the geometric mean of the three components, as in the INFORM Risk Index:
 
-#### The version 4.10 adjustment
+$$
+r = \big(H \cdot V \cdot C\big)^{1/3}
+$$
 
-Two changes are made. First, severity is **routed onto the components it acts on** instead of onto the headline score. Second, it is applied as a **bounded shift on the log-odds scale** instead of a convex pull.
+The geometric mean is chosen over the arithmetic mean because the components are complements, not substitutes. A severe weakness in one dimension (very low capacity, say) compromises the whole system and is not cancelled by strength elsewhere. The nominal weights are equal, 1/3 each in log space; how much each component *effectively* weighs across countries is reported in [Effective weights across countries].
 
-Each INFORM Severity sub-dimension is assigned to the risk component that it is conceptually responsible for:
+A pillar is computed only if at least three of its four sub-components are available, and the structural score only if all three components are. A country missing an entire dimension is reported as missing rather than scored on what remains.
+
+### Missing data: completeness flag
+
+Data sparsity correlates with fragility, so without an explicit flag the countries most likely to be scored from a partial variable set would be precisely the high-risk ones. The pipeline counts the missing indicators behind each component, publishes the completeness proportion, and marks a country `low_confidence` when more than three indicators are missing overall or more than half of any single component's indicators are missing.
+
+### Crisis severity: driver-routed, bounded modifier
+
+The INFORM Severity Index (1 = low to 5 = extreme) rates ongoing humanitarian crises on their impact, the conditions of the people affected and their complexity. It is applied in two steps.
+
+**Routing.** Each severity sub-dimension acts only on the component it is conceptually responsible for:
 
 | Component | Severity sub-dimension | Rationale |
 |---|---|---|
-| Hazard | Geometric mean of *Conditions of people affected* and *Impact of the crisis* | The acute health burden generated by the crisis |
-| Vulnerability | *Society and safety* | Social cohesion, safety and protection of the affected population |
-| Capacity | *Operating environment* | Access constraints and service delivery, which is what degrades effective health system capacity during a crisis |
+| Hazard | Geometric mean of *Conditions of people affected* and *Impact of the crisis* | The acute health burden of the crisis |
+| Vulnerability | *Society and safety* | Social cohesion and protection of the affected population |
+| Capacity | *Operating environment* | Access constraints that degrade effective health system capacity |
 
-Which channels are active for a given country is determined by its INFORM Severity **drivers**, mapped through the standardised crisis modifier matrix. A country whose only driver is population movement activates a different, narrower set of channels than one facing armed conflict, drought and epidemic simultaneously. Driver counts are converted to a saturating weight $w = n/(n + \kappa)$ so that long driver lists cannot accumulate unbounded uplift.
+Which channels are active depends on the country's crisis **drivers** (conflict, drought, epidemic, ...), mapped through the crisis modifier matrix. Driver counts become a saturating weight $w = n/(n + \kappa)$, with $\kappa = 2$, so long driver lists cannot accumulate unbounded uplift. A country with a severity record but no matched driver receives a floor weight of 0.25, so that a gap in the matrix cannot switch the modifier off.
 
-The adjustment applied to each component is then
+**Bounded shift.** Each component is shifted on the log-odds scale:
 
 $$
-\text{component}_{adj} = \operatorname{logistic}\Big( \operatorname{logit}(\text{component}) + \beta_k \, w_k \, i_k \Big)
+\text{component}_{adj} = \operatorname{logistic}\Big( \operatorname{logit}(\text{component}) + \beta_k \, w_k \, i_k \Big), \qquad i_k = \frac{S_k - 1}{4}
 $$
 
-where $i_k = (S_k - 1)/4$ is the severity intensity in $[0, 1]$ and $\beta_k$ is a coefficient set by policy rather than estimated. The severity-adjusted risk is the geometric mean of the three adjusted components, exactly as for the unadjusted score, so the two remain directly comparable and their difference is attributable entirely to the crisis modifier.
+and the severity-adjusted risk is the geometric mean of the adjusted components. Three properties motivate this form:
 
-Three properties follow. The adjustment is **bounded**: a component can approach but never reach 1, so structural differences between countries survive even the most extreme crisis. It is **interpretable**: $\beta$ is a log odds ratio, so its magnitude means the same thing at any baseline. And it is **compensatory rather than dominant**: because the components are combined with a geometric mean, a shift applied to one component is damped to roughly one third in log space, so a strong health system can legitimately offset a crisis rather than being overruled by it.
+- **Bounded.** A component approaches but never reaches 1, so structural differences survive even the most extreme crisis.
+- **Interpretable.** $\beta_k$ is a log odds ratio, with the same meaning at any baseline.
+- **Compensatory.** Through the geometric mean, a shift on one component is damped to roughly a third, so a strong health system can legitimately offset a crisis rather than be overruled by it.
 
-Treating an absent severity record and a severity of 1 as identical (intensity 0) also removes the discontinuity at entry into the INFORM Severity list.
+The version 4.00 formula, $r + \frac{S-1}{4}(1-r)$, was a convex pull towards 1: at severity 5 it returned 1.0 for every country regardless of hazard, vulnerability or capacity, and half a point of severity moved the index more than doubling measured vulnerability. Treating "no severity record" and "severity 1" identically (intensity 0) also removes the jump that used to occur when a country entered the INFORM Severity list.
 
-<aside>The coefficients $\beta$ are a management decision, not an estimate. They should be revisited deliberately and the reason recorded.</aside>
+<aside>The coefficients $\beta$ are a management decision, not an estimate. Revisit them deliberately and record the reason.</aside>
 
-The default coefficients are calibrated against a stated policy: a country facing the most severe crisis in the world, on all three channels at once, should move by roughly one band on a five-band scale — not be pinned to the maximum. The table below shows the resulting behaviour against the v4.00 formula, and is reproduced from `severity_calibration_table()` so it can be recomputed whenever the coefficients change.
+The coefficients ($\beta$ = 0.8 for hazard, 1.0 for vulnerability and capacity) are calibrated to a stated policy: the most severe crisis in the world, on all three channels at once, should move a mid-range country by about one band on a five-band scale (about +0.17), not pin it to the maximum. A minor single-driver crisis at severity 2 moves it by about +0.02, against +0.16 under version 4.00. The calibration is recomputed from `severity_calibration_table()` whenever the coefficients change:
 
 ```{r}
 #| label: severity-calibration
 tar_read(fig_severity_calibration)
 ```
 
-Under these coefficients a minor single-driver crisis at severity 2 moves a mid-range country by about +0.018, against +0.163 under v4.00 — roughly a ninefold reduction — while a severe multi-driver crisis still produces a clearly visible +0.17.
+### Explaining the score
 
-### Correlation analysis
+A score that cannot be explained cannot be defended, so the index is decomposed at two levels: per country (*why did this country get this score?*) and across countries (*how much does each component actually weigh?*).
 
-To explore the relationships among key dimensions of humanitarian risk, we computed the pairwise Pearson correlation matrix across a selected set of indicators. These indicators were grouped into thematic clusters: health-related hazards, vulnerability, capacity, and crisis severity. The correlation matrix was visualized using a heatmap, with correlation coefficients displayed in each cell and a custom red-white-red color scale. This scale emphasized strong correlations (\|r\| \> 0.4) while visually de-emphasizing weaker associations.
+#### Per country: exact decomposition
 
-To enhance interpretability, we highlighted variable clusters with colored rectangles corresponding to their thematic groupings. This allowed us to assess both intra-cluster coherence (how strongly variables within a group correlate with each other) and inter-cluster relationships (how distinct the clusters are from one another). The analysis was conducted using tidyverse tools in R, ensuring reproducibility and clarity in data handling and visualization.
-
-### Rationale for the score decomposition
-
-A score that cannot be explained cannot be defended. Version 4.10 therefore
-reports, for every country, exactly how its score was reached.
-
-The index is built from geometric means, which are additive in logarithms, so
-the three components decompose against a reference country with no approximation
-whatsoever:
+Because geometric means are additive in logarithms, a country's score decomposes against a reference country (the geometric mean of all countries) with no approximation:
 
 $$
-\log r_c - \log r_{ref} = \frac{1}{3}\sum_k \left[\log x_{k,c} - \log x_{k,ref}\right]
+\log r_c - \log r_{ref} = \frac{1}{3}\sum_k \left[\log x_{k,c} - \log x_{k,ref}\right] + \text{crisis modifier}
 $$
 
-Read multiplicatively, this is a statement anyone can check: *the reference
-country scores 0.38; hazard multiplies that by 1.16, vulnerability by 1.13,
-capacity divides it by 1.05, giving 0.47.* The weights are fixed at one third by
-the structure of the geometric mean, so all the variation comes from how far each
-component sits from the reference. There is no weighting choice to dispute.
+Read multiplicatively: *the reference country scores 0.38; hazard multiplies that by 1.16, vulnerability by 1.13, capacity divides it by 1.05, giving 0.47.* Below the component level the identity no longer holds, because inversion and normalisation are affine rather than multiplicative. Sub-components are therefore attributed by **exact Shapley values**, enumerated over all sixteen coalitions per pillar, which sum exactly to the pillar's contribution. Every bar in the waterfall charts is exact, not a heuristic.
 
-Below the component level that identity fails, because `invert_0_10()` and
-`normalise_quantiles()` are affine rather than multiplicative. Extending the log
-decomposition through them is not merely imprecise: on realistic inputs it
-returns contributions of the wrong sign. Sub-component attribution therefore uses
-**exact Shapley values**, enumerated over all sixteen coalitions per pillar, which
-are agnostic to what sits between input and output and satisfy the efficiency
-axiom. Scaling them by one third makes them sum to the pillar's own top-level
-contribution, so the two levels reconcile without a correction factor.
+#### Across countries: effective weights
 
-The crisis modifier decomposes on the same footing, since the severity-adjusted
-score is the geometric mean of the adjusted components.
+The nominal weights are fixed at 1/3, but a component on which all countries score alike cannot move a ranking, whatever its nominal weight. Because the decomposition is exact, the published log score is an exact sum of terms, $T = \sum_j c_j$ (one per component or indicator, plus the crisis modifier). Two summaries follow with no estimation error:
 
-Two limitations are worth stating rather than hiding. First, where components are
-correlated - and the dimensionality analysis above indicates they are - the split
-of shared variance between them is **partly a convention**: Shapley divides it
-evenly by axiom, the log decomposition assigns it independently, and neither is
-uniquely correct. Second, a decomposition explains the arithmetic, not the
-validity. It shows faithfully how the number was produced; it says nothing about
-whether the number is right. Those are separate defences.
+$$
+\beta^{std}_j = \frac{\operatorname{sd}(c_j)}{\operatorname{sd}(T)}, \qquad
+s_j = \frac{\operatorname{cov}(c_j, T)}{\operatorname{var}(T)} = \beta^{std}_j \cdot \operatorname{cor}(c_j, T)
+$$
 
-Contributions are reported alongside the completeness of the inputs behind them,
-so a large contribution resting on a thin evidence base is visible.
+- $\beta^{std}_j$ is the **standardised beta coefficient**: exactly what a regression of log risk on the log components returns (coefficients 1/3, $R^2 = 1$), rescaled to standard deviations.
+- $s_j$ is its **share of the cross-country variance** of the score (Pratt's measure). The shares sum to exactly 100% and divide the variance between correlated terms as well. A negative share means the term tends to narrow rather than widen the differences between countries.
 
-### Rationale for the dimensionality analysis
+Comparing $s_j$ with the nominal weight shows where the effective weighting departs from the design.
 
-The correlation matrix answers whether pairs of indicators move together. It does not answer how many *independent* things the index is measuring, and for a composite indicator that is the more consequential question. If the three pillars are largely collinear, the index has fewer effective dimensions than its structure implies, and the implicit equal weighting of the geometric mean silently over-weights whatever latent factor the pillars share — in practice, usually national income.
+#### Limits of the decomposition
 
-We therefore complement the correlation analysis with a principal component analysis of the scaled sub-component scores, reporting the share of variance explained by each component, the number of components required to reach 80% and 90% of total variance, and the loadings that show which indicators drive each independent dimension. This is a diagnostic rather than a test: a low effective dimensionality does not invalidate the index, but it does mean the pillar structure is doing less work than it appears to, and it should be reported rather than assumed away.
+Where components are correlated, how shared variance is split between them is partly a convention: Shapley divides it evenly by axiom, Pratt's measure by covariance, and neither is uniquely correct. And a decomposition explains the arithmetic, not the validity: it shows faithfully how a number was produced, not whether the number is right.
 
-### Rationale for the data completeness flag
+### Validation
 
-Missing indicators were previously dropped silently: a country measured on two of four vulnerability sub-components received the geometric mean of those two, indistinguishable in the output from a country measured on all four. Because data sparsity correlates with fragility, this meant that the highest-risk countries were systematically scored from a different variable set than well-measured ones, which undermines the cross-country comparability that is the purpose of the index.
+Two internal checks are reported. Neither is an external validation (see [Limitations]).
 
-Version 4.10 counts the missing indicators behind each component, publishes the resulting completeness proportion, and flags countries as `low_confidence` when either the overall count or the share missing within a single component exceeds a threshold. A component that is missing entirely now yields `NA` rather than a score computed from the remainder.
+- **Correlation matrix.** Pairwise Pearson correlations between indicators, grouped by component, show whether indicators within a component capture a coherent dimension and whether the components are distinct from each other.
+- **Dimensionality.** A principal component analysis of the scaled sub-components shows how many *independent* dimensions the index measures. If the pillars are largely collinear, the equal weighting implied by the geometric mean silently over-weights whatever latent factor they share, usually national income. A low effective dimensionality does not invalidate the index, but it should be reported rather than assumed away.
 
-### Rationale for estimating the impact of the individual site and within the country
+### Site-level proximity
 
-To adapt the health risk assessment to the specific context in which operators work, it is necessary to consider the residence site as a determining variable. The main factor affecting health at a site is the degree of isolation index, i.e., how difficult it is to access different levels of health service from that location. This difficulty also has a direct impact on mitigation strategies: as the available services within the site increase, the time required to access them decreases, thus improving the local health response.
+To adapt the country score to a worksite, a Delphi-style survey of medical officers estimates how sensitive 14 clinical scenarios are to delays in diagnosis and transport. Site assessments then report the actual delays, outbreak concerns and population at each worksite. These yield three scores (disease, outbreak and people), summed into a proximity score that is added to the baseline risk on the odds scale and transformed back, so the result stays within 0-1 and the amplification is larger where baseline risk is high. This module is unchanged in the current version and is scheduled for revision.
 
-For each of these levels, an access time can be estimated, taking into account both the internal availability at the site and the need to move to external facilities. This is supplemented by factors such as the mode of transport (private car, escorted vehicle, helicopter) and, if relevant, the length of waiting lists. Furthermore, the quality of care available in the local health system represents an additional element to consider, as it affects the actual capacity to respond to health needs. The resulting difficulty index is therefore a composite measure, based on time and access conditions, easily interpretable and directly applicable to service planning. This approach also provides an operational rationale for sizing the health offer within the site, justifying the allocation of resources based on local risk and criticality.
+### Changes from previous versions
 
-To refine country-level health risk assessments for remote worksites, we developed a localisation framework that integrates expert survey data with proximity-specific indicators. This approach accounts for the variability in healthcare access and outbreak exposure across different regions within the same country. The process combines structured Delphi survey responses, proximity assessments from field personnel, and epidemiological risk scores to produce a localised health risk index tailored to the worksite.
-
-#### Survey-Based Estimation of Diagnosis and Transport Delay Sensitivity
-
-We designed a Delphi-style survey to capture expert perceptions of how delays in diagnosis and transport affect patient outcomes in remote settings. Respondents evaluated ten dimensions of concern across 14 clinical scenarios, ranging from acute abdominal pain to mental health crises. Each scenario included four diagnosis delay intervals and four transport delay intervals, plus two questions on health and wellbeing impact. To ensure consistency and interpretability, monotonicity within each delay group, ensuring that concern levels do not decrease as delays increase. The survey also asked outbreak risk-related questions, which were summarized separately, enabling weighted scoring based on perceived outbreak risk.
-
-#### Proximity-Based Risk Adjustment
-
-To incorporate local context, we collected proximity assessments from field personnel using a structured form. This included responses to the same delay questions as the survey, as well as outbreak concern ratings and population estimates (local residents, expatriates, and families). Information requested to the worksite are split across three components:
-
-- Disease-specific score: Each delay response is matched against the aggregated concern proportions from the survey. A ±0.1 adjustment is applied based on whether the concern exceeds a threshold (default is 0.67, representing the proportion of health personnel that should be worried about a condition to increase the overall risk level).
-- Outbreak score: Responses are weighted by concern level and matched to survey's outbreak concern proportions
-- People score: Log-transformed population values are adjusted to reflect density and vulnerability. Local residents contribute positively, while expatriate families are capped to avoid overestimation.
-
-The final proximity score is the sum of these three components, representing the localised health risk contribution from diagnosis or transport delay sensitivity, outbreak exposure, and population exposure.
-
-#### Localised Risk Integration
-
-The proximity scores are merged with country-level severity-adjusted risk estimates. This is performed through an odds-based adjustment to the baseline risk, ensuring that localised factors proportionally influence the final risk score. Specifically, the baseline risk is converted to odds, incremented by the proximity score, and transformed back to a probability. This approach preserves the bounded nature of risk (0–1) while allowing for non-linear amplification in high-risk contexts.
+- **v4.00** replaced individual diseases with aggregate GBD burden, expanded and grounded the vulnerability, capacity and severity sources, introduced geometric aggregation, and streamlined the proximity adjustment.
+- **v4.10** keeps the framework and corrects its implementation:
+  - the crisis modifier is routed onto components as a bounded log-odds shift instead of overriding the score;
+  - all components use the same frozen quantile normalisation;
+  - doctor density is normalised;
+  - thin evidence is flagged;
+  - a dimensionality check is added;
+  - inputs are reduced to those actually used (two WHO indicators instead of eight; no UN IGME or INFORM headline aggregates; GBD "all causes" plus level-2 causes instead of hard-coded cause lists);
+  - every score is decomposed per country, and the effective weight of each component across countries is reported;
+  - comparisons are made against the previous run of the pipeline instead of the legacy CRPI spreadsheets.
 
 ## Results
 
-### Health risk section
+### Components
 
-```{r, echo=FALSE}
+Hazard: the all-cause DALY rate.
+
+```{r}
 tar_read(map_daly_avg)
 ```
 
-### Vulnerability section
+Vulnerability.
 
-```{r, echo=FALSE}
+```{r}
 tar_read(map_vul_score)
 ```
 
-```{r, echo=FALSE, fig.height=12, dpi=300}
+```{r}
+#| fig-height: 12
+#| dpi: 300
 tar_read(fig_vul_bar)
 ```
 
-### Capacity section
+Coping capacity.
 
-```{r, echo=FALSE}
+```{r}
 tar_read(map_cap_score)
 ```
 
-```{r, echo=FALSE, fig.height=12, dpi=300}
+```{r}
+#| fig-height: 12
+#| dpi: 300
 tar_read(fig_cap_bar)
 ```
 
-### Risk Score calculation
+### Structural risk
 
-A map of unadjusted health risk
-
-```{r, echo=FALSE}
+```{r}
 tar_read(map_risk_score)
 ```
 
-A 3D plot of the different components, where available
+The three components in one space, where available:
 
-```{r, echo=FALSE}
+```{r}
 tar_read(fig_3d_risk)
 ```
 
-An histogram to show distribution of available values
-
-```{r, echo=FALSE}
+```{r}
 tar_read(fig_risk_hist)
 ```
 
-And bar chart of risk score across countries
-
-```{r, echo=FALSE, r, fig.height=12, dpi=300}
+```{r}
+#| fig-height: 12
+#| dpi: 300
 tar_read(fig_risk_bars)
 ```
 
-### Severity adjustment
+### Severity-adjusted risk
 
-A crisis severity map
+Crisis severity:
 
 ```{r}
 tar_read(map_sev_score)
 ```
 
-And a severity-adjusted risk score can be computed.
+<aside>This is the headline result of the assessment.</aside>
 
-<aside>This is the main result of this assessment.</aside>
+The severity-adjusted risk:
 
 ```{r}
 tar_read(map_adj_risk_score)
 ```
 
-The shift between the unadjusted and the severity-adjusted score, by country:
+The shift between the structural and the severity-adjusted score:
 
 ```{r}
 tar_read(fig_risk_shift)
 ```
 
-#### How much of the score is the crisis modifier?
-
-The chart below decomposes the severity-adjusted score into its structural part and the uplift contributed by the crisis modifier, for the countries most affected. Under v4.00 the red segment would frequently have been the larger of the two; it should now be a visible but minority contribution.
+How much of each affected country's score comes from the crisis modifier. It should be a visible but minority contribution:
 
 ```{r}
 tar_read(fig_severity_uplift)
 ```
 
-The underlying table records, for each country, which channels were activated, at what intensity, whether any driver was matched in the crisis modifier matrix, and what the deprecated v4.00 formula would have produced. This is the table to consult when asked why a country changed band.
+Which channels were activated, at what intensity, and what the version 4.00 formula would have produced. This is the table to consult when asked why a country changed band:
 
 ```{r}
 tar_read(severity_effect_table) |>
@@ -463,27 +370,60 @@ tar_read(severity_effect_table) |>
   knitr::kable(digits = 3)
 ```
 
+### Effective weights across countries
+
+The bars show each component's share of the cross-country variance of the severity-adjusted score; the diamonds show its nominal weight.
+
+```{r}
+#| fig-height: 4
+tar_read(fig_global_weights_component)
+```
+
+```{r}
+gw <- tar_read(global_weights)
+gw$component |>
+  dplyr::select(Component = label, `Nominal weight` = nominal_weight,
+                `Standardised beta` = std_beta,
+                `Variance share` = variance_share,
+                `Mean |contribution|` = mean_abs_contribution) |>
+  knitr::kable(digits = 3, caption = glue(
+    "Effective weights of the components ({gw$n_component} countries)"))
+```
+
+The same at indicator level, where the nominal weight of a sub-component is a quarter of its pillar's third:
+
+```{r}
+#| fig-height: 6
+tar_read(fig_global_weights_indicator)
+```
+
+```{r}
+gw$indicator |>
+  dplyr::mutate(component = tools::toTitleCase(component)) |>
+  dplyr::select(Component = component, Indicator = label,
+                `Nominal weight` = nominal_weight,
+                `Standardised beta` = std_beta,
+                `Variance share` = variance_share) |>
+  knitr::kable(digits = 3, caption = glue(
+    "Effective weights of the indicators ({gw$n_indicator} countries ",
+    "with complete indicators)"))
+```
+
 ### How each country reached its score
 
-The waterfall below runs from the reference country to the published
-severity-adjusted score. Every bar is exact: the running product reproduces the
-score, it is not an attribution heuristic.
+From the reference country to the published severity-adjusted score, for the highest-risk country. The running product reproduces the score exactly:
 
 ```{r}
 #| fig-height: 7
 tar_read(fig_waterfall_top)
 ```
 
-The same contributions as signed bars, with components whose inputs are
-incomplete drawn with a dashed outline.
+The same contributions as signed bars. A dashed outline marks a component with incomplete inputs:
 
 ```{r}
 #| fig-height: 6
 tar_read(fig_contributions_top)
 ```
-
-Per-country summary: which component drives the score, which pulls it down, and
-how much of it comes from the crisis modifier.
 
 ```{r}
 tar_read(decomposition_summary) |>
@@ -492,8 +432,7 @@ tar_read(decomposition_summary) |>
                caption = "Score decomposition summary, highest risk first")
 ```
 
-The decomposition for any other country is available from the precomputed
-object, for example:
+Any other country's decomposition can be drawn from the precomputed object, or explored in the Shiny explorer (`tar_read(shiny_explorer)`):
 
 ```{r}
 #| eval: false
@@ -502,8 +441,6 @@ create_decomposition_waterfall(tar_read(risk_decomposition),
 ```
 
 ### Data completeness
-
-Countries whose score rests on a thin evidence base are flagged rather than presented with false precision.
 
 ```{r}
 tar_read(map_completeness)
@@ -519,11 +456,9 @@ tar_read(risk_score) |>
                caption = "Countries flagged as low confidence")
 ```
 
-### Analysis and Validation
+### Validation
 
-#### Correlation analysis
-
-For the variables that are part of the model, we can visualise them.
+#### Correlation
 
 ```{r}
 #| fig-width: 10
@@ -533,13 +468,11 @@ For the variables that are part of the model, we can visualise them.
 tar_read(corplot)
 ```
 
-The correlation matrix shows strong internal consistency within the vulnerability, capacity, and crisis severity clusters. Variables within each of these groups show high intra-cluster correlations, suggesting that they capture coherent dimensions of risk. For example, indicators such as infrastructure, adult literacy, and socio-economic vulnerability are tightly correlated.
+Indicators within the vulnerability, capacity and crisis severity clusters correlate strongly with each other, so each cluster captures a coherent dimension. Vulnerability and capacity are also strongly correlated with each other, while their correlation with crisis severity is low. Severity therefore captures a distinct, acute dimension, which is what the driver-routed adjustment relies on.
 
-Vulnerability and capacity are also highly correlated with each other, while their correlations with the crisis severity indicators are relatively low. This suggests that crisis severity captures a distinct dimension, more responsive to acute events than to structural factors, which is the behaviour the driver-routed adjustment relies on.
+The cause-specific burden indicators correlate weakly, as expected: the burden of one disease does not predict another. The hazard score is by construction a monotone transformation of the all-cause DALY rate, so their correlation of 1 carries no evidential weight.
 
-The hazard cluster, comprising the disease-specific burden indicators, shows low intra-cluster correlation. This is expected: countries face different epidemiological profiles, and the burden of one disease does not predict the burden of another. Note that the composite hazard score is by construction a monotone transformation of the all-cause DALY rate, so their correlation is 1 and carries no evidential weight; the cause-specific rates are retained for the radar decomposition, where they show *which* burdens dominate in a given country, not to validate the aggregate.
-
-#### Dimensionality analysis
+#### Dimensionality
 
 ```{r}
 tar_read(fig_pca_scree)
@@ -550,8 +483,6 @@ tar_read(pca_dimensionality) |>
   knitr::kable(digits = 3,
                caption = "Effective dimensionality of the index")
 ```
-
-The loadings show which indicators define each independent dimension.
 
 ```{r}
 #| fig-height: 6
@@ -564,17 +495,13 @@ tar_read(fig_pca_loadings)
 tar_read(fig_pca_biplot)
 ```
 
-The high correlation between the vulnerability and capacity clusters should be read together with the scree plot. Where a single component absorbs the majority of variance, the pillar structure is describing one underlying gradient rather than three independent ones, and the equal weighting implied by the geometric mean is a stronger assumption than it appears.
-
-### Impact of the individual site and within the country
-
-The site-level proximity module is unchanged in version 4.10 and is scheduled for revision in a subsequent release, together with the sub-national scoping of crisis severity.
+Where a single principal component absorbs most of the variance, the pillars describe one underlying gradient rather than three independent ones. The effective weights above show the same thing from a different angle: correlated components share their variance, and the equal nominal weighting is a stronger assumption than it appears.
 
 ## Discussion
 
 ### Comparison with the previous run
 
-The legacy CRPI spreadsheets are no longer imported. Each run now writes a snapshot of its own scores, and the following comparison is made against the most recent previous snapshot, so that changes are attributed to a known baseline rather than to a fixed historical index that becomes less informative with each revision. On the first run after this change there is no baseline, and the chart reports that rather than failing.
+Each run writes a snapshot of its scores, and changes are measured against the most recent previous snapshot rather than a fixed historical index. The first run establishes the baseline.
 
 ```{r}
 tar_read(fig_run_comparison)
@@ -594,17 +521,12 @@ if (!is.null(cmp)) {
 
 ### Limitations
 
-Several limitations are worth stating explicitly.
-
-The index has no external criterion against which it has been validated. The analyses above establish internal consistency and dimensionality; they do not establish that the index predicts anything. Convergent comparison against other published indices would be the natural next step.
-
-No uncertainty or sensitivity analysis is performed. The scores are point estimates, and the effect of plausible alternative choices of normalisation, aggregation and weighting on country rankings is not quantified.
-
-Input vintages are heterogeneous. The HAQI component derives from GBD 2019 and has no regular update cycle, making it the oldest input in the index. The WHO indicators use the most recent year available per country, which differs systematically between well-measured and poorly-measured countries; the reference years are retained in the data (`year_uhc`, `year_doctors`) so the spread can be inspected rather than assumed away.
-
-Crisis severity is applied at national level, so a geographically limited crisis affects the whole country's score. The driver routing and bounded adjustment substantially reduce the magnitude of this distortion but do not remove its cause; sub-national scoping is deferred to a subsequent release.
-
-Estimates are derived from general-population data. Expatriate and workforce populations have different age structures and exposure profiles, and no demographic adjustment is applied.
+- **No external validation.** The analyses establish internal consistency and dimensionality, not predictive validity. Convergent comparison against other published indices is the natural next step.
+- **No uncertainty or sensitivity analysis.** Scores are point estimates. The effective weights show how much each component drives the ranking under the current design, but the effect of alternative normalisation, aggregation or weighting choices on the rankings is not quantified.
+- **Equal nominal weights.** The 1/3 weights are a convention inherited from INFORM, not an estimate. The effective weights depart from them wherever components differ in spread or are correlated.
+- **Heterogeneous input vintages.** HAQI derives from GBD 2019 and has no regular update cycle. WHO indicators use the latest year available per country, which differs systematically between well- and poorly-measured countries; the reference years (`year_uhc`, `year_doctors`) are kept so the spread can be inspected.
+- **National crisis scope.** Crisis severity is applied at national level, so a geographically limited crisis affects the whole country. Routing and bounding reduce this distortion but do not remove its cause; sub-national scoping is deferred.
+- **General-population estimates.** Expatriate and workforce populations have different age structures and exposures, and no demographic adjustment is applied.
 
 ## Acknowledgments {.appendix}
 
