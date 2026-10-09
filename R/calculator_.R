@@ -195,6 +195,8 @@ compute_risk_score <- function(paths,
 #' @param reference_quantiles Optional reference distribution, written to a
 #'   `reference_quantiles` sheet.
 #' @param log Optional step log from [compute_risk_score()].
+#' @param extra Optional named list of further data frames, each written to a
+#'   sheet of that name (e.g. effective weights, comparison with a baseline).
 #'
 #' @return `file`, invisibly.
 #' @export
@@ -202,7 +204,8 @@ write_risk_score_xlsx <- function(risk_score,
                                   file,
                                   sources = NULL,
                                   reference_quantiles = NULL,
-                                  log = NULL) {
+                                  log = NULL,
+                                  extra = NULL) {
   if (!requireNamespace("writexl", quietly = TRUE)) {
     stop("Package 'writexl' is needed to write the Excel file: ",
          "install it with renv::install(\"writexl\").", call. = FALSE)
@@ -227,6 +230,9 @@ write_risk_score_xlsx <- function(risk_score,
     sheets$reference_quantiles <- as.data.frame(reference_quantiles)
   }
   if (!is.null(log)) sheets$log <- log
+  for (nm in names(extra)) {
+    if (is.data.frame(extra[[nm]])) sheets[[nm]] <- as.data.frame(extra[[nm]])
+  }
 
   writexl::write_xlsx(sheets, file)
   invisible(file)
@@ -276,45 +282,12 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
   files <- risk_input_files()
   reference_quantiles <- read_reference_quantiles()
 
-  file_picker <- function(i) {
-    id <- files$id[i]
-    default <- defaults[id]
-    shiny::tagList(
-      shiny::fileInput(paste0("file_", id), files$label[i],
-                       accept = files$accept[i]),
-      shiny::tags$div(
-        style = "margin-top:-15px; margin-bottom:10px;",
-        shiny::helpText(
-          if (length(default) == 1 && !is.na(default)) {
-            paste("Default:", basename(default))
-          } else {
-            "No default found: upload required."
-          }
-        )
-      )
-    )
-  }
-
-  groups <- unique(files$group)
   ui <- shiny::fluidPage(
     shiny::titlePanel("Country Risk Score Calculator"),
     shiny::sidebarLayout(
       shiny::sidebarPanel(
         width = 4,
-        lapply(groups, function(g) {
-          shiny::tagList(
-            shiny::h4(g),
-            lapply(which(files$group == g), file_picker)
-          )
-        }),
-        shiny::tags$details(
-          shiny::tags$summary("Advanced"),
-          shiny::numericInput("inform_risk_sheet",
-                              "INFORM Risk: indicators sheet", 2, min = 1),
-          shiny::numericInput("inform_lcc_sheet",
-                              "INFORM Risk: Lack of Coping Capacity sheet", 5,
-                              min = 1)
-        ),
+        risk_input_pickers(defaults),
         shiny::hr(),
         shiny::actionButton("calculate", "Calculate risk score",
                             class = "btn-primary")
@@ -340,22 +313,7 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
     result <- shiny::reactiveVal(NULL)
     error <- shiny::reactiveVal(NULL)
 
-    # Uploaded file if any, else the default.
-    chosen <- shiny::reactive({
-      picks <- lapply(files$id, function(id) {
-        up <- input[[paste0("file_", id)]]
-        if (!is.null(up)) {
-          list(path = up$datapath[1], name = up$name[1])
-        } else if (!is.na(defaults[id])) {
-          list(path = unname(defaults[id]),
-               name = basename(unname(defaults[id])))
-        } else {
-          list(path = NA_character_, name = NA_character_)
-        }
-      })
-      list(paths = stats::setNames(vapply(picks, `[[`, "", "path"), files$id),
-           names = stats::setNames(vapply(picks, `[[`, "", "name"), files$id))
-    })
+    chosen <- shiny::reactive(chosen_risk_inputs(input, defaults))
 
     shiny::observeEvent(input$calculate, {
       result(NULL)
@@ -447,14 +405,110 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
     )
   }
 
-  old_max <- NULL
   shiny::shinyApp(
     ui = ui,
     server = self_contained(server),
-    onStart = function() {
-      # GBD extracts easily exceed Shiny's 5 MB default upload limit.
-      old_max <<- options(shiny.maxRequestSize = max_upload_mb * 1024^2)
-      shiny::onStop(function() options(old_max))
-    }
+    onStart = upload_limit(max_upload_mb)
   )
+}
+
+#' File pickers for the risk score inputs
+#'
+#' One `fileInput` per entry of [risk_input_files()], grouped by source, each
+#' with a note naming the default used when nothing is uploaded, plus the
+#' INFORM sheet selectors. Shared by the Shiny apps that compute scores.
+#'
+#' @param defaults Named vector of default paths (see
+#'   [default_risk_input_paths()]), or `NULL` when every file must be uploaded.
+#' @param files Output of [risk_input_files()].
+#' @return A `shiny.tag.list`.
+#' @noRd
+risk_input_pickers <- function(defaults = NULL, files = risk_input_files()) {
+  defaults <- complete_defaults(defaults, files)
+
+  picker <- function(i) {
+    id <- files$id[i]
+    shiny::tagList(
+      shiny::fileInput(paste0("file_", id), files$label[i],
+                       accept = files$accept[i]),
+      shiny::tags$div(
+        style = "margin-top:-15px; margin-bottom:10px;",
+        shiny::helpText(
+          if (!is.na(defaults[[id]])) {
+            paste("Default:", basename(defaults[[id]]))
+          } else {
+            "Upload required."
+          }
+        )
+      )
+    )
+  }
+
+  shiny::tagList(
+    lapply(unique(files$group), function(g) {
+      shiny::tagList(shiny::h4(g), lapply(which(files$group == g), picker))
+    }),
+    shiny::tags$details(
+      shiny::tags$summary("Advanced"),
+      shiny::numericInput("inform_risk_sheet",
+                          "INFORM Risk: indicators sheet", 2, min = 1),
+      shiny::numericInput("inform_lcc_sheet",
+                          "INFORM Risk: Lack of Coping Capacity sheet", 5,
+                          min = 1)
+    )
+  )
+}
+
+#' Resolve the file chosen for each risk score input
+#'
+#' Call inside a reactive: reads the `file_<id>` inputs created by
+#' [risk_input_pickers()] and falls back to the default for any input left
+#' empty.
+#'
+#' @param input The Shiny `input` object.
+#' @inheritParams risk_input_pickers
+#' @return A list with named character vectors `paths` (what to read, `NA` when
+#'   neither uploaded nor defaulted) and `names` (what to show: the original
+#'   name of an uploaded file, or the default's base name).
+#' @noRd
+chosen_risk_inputs <- function(input, defaults = NULL,
+                               files = risk_input_files()) {
+  defaults <- complete_defaults(defaults, files)
+  picks <- lapply(files$id, function(id) {
+    up <- input[[paste0("file_", id)]]
+    if (!is.null(up)) {
+      list(path = up$datapath[1], name = up$name[1])
+    } else if (!is.na(defaults[[id]])) {
+      list(path = defaults[[id]], name = basename(defaults[[id]]))
+    } else {
+      list(path = NA_character_, name = NA_character_)
+    }
+  })
+  list(paths = stats::setNames(vapply(picks, `[[`, "", "path"), files$id),
+       names = stats::setNames(vapply(picks, `[[`, "", "name"), files$id))
+}
+
+#' Defaults as a full named vector, `NA` where none
+#' @noRd
+complete_defaults <- function(defaults, files = risk_input_files()) {
+  out <- stats::setNames(rep(NA_character_, nrow(files)), files$id)
+  if (length(defaults) > 0) {
+    known <- intersect(names(defaults), files$id)
+    out[known] <- unname(defaults[known])
+  }
+  out
+}
+
+#' `onStart` hook raising Shiny's upload limit for the app's lifetime
+#'
+#' GBD extracts easily exceed Shiny's 5 MB default upload limit.
+#'
+#' @param max_upload_mb Maximum size of a single uploaded file, in MB.
+#' @return A function suitable for `shinyApp(onStart = )`.
+#' @noRd
+upload_limit <- function(max_upload_mb) {
+  function() {
+    old <- options(shiny.maxRequestSize = max_upload_mb * 1024^2)
+    shiny::onStop(function() options(old))
+  }
 }

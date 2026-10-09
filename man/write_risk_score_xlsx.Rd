@@ -9,7 +9,8 @@ write_risk_score_xlsx(
   file,
   sources = NULL,
   reference_quantiles = NULL,
-  log = NULL
+  log = NULL,
+  extra = NULL
 )
 }
 \arguments{
@@ -24,6 +25,9 @@ write_risk_score_xlsx(
 \code{reference_quantiles} sheet.}
 
 \item{log}{Optional step log from \code{\link[=compute_risk_score]{compute_risk_score()}}.}
+
+\item{extra}{Optional named list of further data frames, each written to a
+sheet of that name (e.g. effective weights, comparison with a baseline).}
 }
 \value{
 \code{file}, invisibly.
