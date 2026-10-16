@@ -32,8 +32,11 @@ list(
 
   # Import your file from custom (shared) location, and preprocess them
   # Utilities file
-  tar_target(cm_data, risk_input_path("crisis_modifier") |>
-               import_cm_matrix()),
+  # The crisis modifier matrix is versioned with the code
+  # (inst/extdata/crisis_modifier_matrix.xlsx); tracking it as a file means an
+  # edit to the flags rebuilds the scores.
+  tar_target(cm_data_file, risk_input_path("crisis_modifier"), format = "file"),
+  tar_target(cm_data, import_cm_matrix(cm_data_file)),
 
   # GBD section
   # GBD extract: DALYs, Rate, All ages, Both sexes, "All causes" + all level-2

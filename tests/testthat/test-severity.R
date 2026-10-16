@@ -36,10 +36,11 @@ test_that("severity intensity removes the v4.0 'entering the list' cliff", {
 
 test_that("channel weights saturate and respect the floor", {
   df <- data.frame(
-    severity_index = c(NA, 3, 3, 3),
-    `Driver Population movement` = c(0, 1, 1, 1),
-    `Driver Conflict` = c(0, 0, 1, 1),
-    `Driver Drought` = c(0, 0, 0, 1),
+    severity_index = c(NA, 3, 3, 3, 4),
+    `Driver Population movement` = c(0, 1, 1, 1, 0),
+    `Driver Conflict` = c(0, 0, 1, 1, 0),
+    `Driver Drought` = c(0, 0, 0, 1, 0),
+    `Driver Economic` = c(0, 0, 0, 0, 1),
     check.names = FALSE
   )
   cm <- data.frame(
@@ -62,8 +63,18 @@ test_that("channel weights saturate and respect the floor", {
   expect_equal(w$w_vulnerability[4], 3 / 5, tolerance = 1e-8)
   expect_true(all(w$w_vulnerability < 1))
 
-  # Floor applies where a crisis exists but no driver hits that channel
-  expect_equal(w$w_capacity[2], 0.25)
+  # A matched driver keeps its channels: no capacity flag means no capacity
+  # weight, the floor does not override the matrix
+  expect_equal(w$w_capacity[2], 0)
+
+  # A crisis with no driver in the matrix gets the floor on every component
+  expect_equal(unlist(w[5, c("w_hazard", "w_vulnerability", "w_capacity")]),
+               c(w_hazard = 0.25, w_vulnerability = 0.25, w_capacity = 0.25))
+  expect_false(w$driver_matched[5])
+
+  # Default floor: the weight of one driver
+  w_default <- severity_channel_weights(df, cm)
+  expect_equal(w_default$w_capacity[5], 1 / 3)
 })
 
 test_that("severity no longer dominates the structural model", {
@@ -169,4 +180,21 @@ test_that("audit_crisis_modifier_matrix() reports gaps", {
   expect_equal(a$drivers$countries_now, c(1, 0))
   expect_equal(a$summary$countries_on_floor_weight, 1)
   expect_equal(a$summary$matrix_drivers_unused_now, 1)
+})
+
+test_that("the adopted crisis modifier matrix ships with the package", {
+  withr::local_dir(test_path("..", ".."))  # project root, as in the pipeline
+  p <- risk_input_path("crisis_modifier")
+  expect_true(file.exists(p))
+  cm <- import_cm_matrix(p)
+  expect_equal(nrow(cm), 20)
+  a <- audit_crisis_modifier_matrix(
+    cm, data.frame(severity_index = 3, `Driver Heatwave` = 1,
+                   check.names = FALSE))
+  expect_true(all(a$channels$status == "flags"))
+  w <- severity_channel_weights(
+    data.frame(severity_index = 3, `Driver Heatwave` = 1, check.names = FALSE),
+    cm)
+  expect_equal(w$w_vulnerability, 0)
+  expect_equal(w$w_capacity, 1 / 3)
 })

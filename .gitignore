@@ -9,6 +9,9 @@ inst/extdata/*
 # Comparability across releases and machines depends on everyone using the same
 # bounds, so this one file must be tracked.
 !inst/extdata/reference_quantiles_2025.csv
+# The crisis modifier matrix is likewise methodology, not data: one flag per
+# driver and channel, reviewed and versioned with the code.
+!inst/extdata/crisis_modifier_matrix.xlsx
 .Renviron
 countryriskindex.Rcheck/
 countryriskindex*.tar.gz

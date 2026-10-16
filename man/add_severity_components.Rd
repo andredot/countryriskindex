@@ -11,7 +11,7 @@ add_severity_components(
   channel_map = default_channel_map(),
   sources = default_severity_sources(),
   kappa = 2,
-  w_floor = 0.25
+  w_floor = 1/3
 )
 }
 \arguments{

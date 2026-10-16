@@ -9,7 +9,7 @@ severity_channel_weights(
   cm_data = NULL,
   channel_map = default_channel_map(),
   kappa = 2,
-  w_floor = 0.25
+  w_floor = 1/3
 )
 }
 \arguments{
@@ -45,7 +45,10 @@ so that one driver gives 0.33, two give 0.50 and four give 0.67 (at the
 default \code{kappa = 2}). Saturation prevents countries with long driver lists
 from accumulating unbounded uplift.
 
-Countries that have a severity record but no driver matching a channel
-receive \code{w_floor} rather than zero, so that a coding gap in the driver matrix
-cannot silently switch the crisis modifier off.
+Countries that have a severity record but none of whose drivers is in the
+matrix (a coding gap, or only "Other") receive \code{w_floor} on every component
+rather than zero, so that a gap in the matrix cannot silently switch the
+crisis modifier off. The default, 1/3, is the weight of one matched driver.
+Countries with at least one matched driver keep the weights their drivers
+give, including 0 on components none of their drivers acts on.
 }

@@ -198,7 +198,7 @@ The INFORM Severity Index (1 = low to 5 = extreme) rates ongoing humanitarian cr
 | Vulnerability | *Society and safety* | Social cohesion and protection of the affected population |
 | Capacity | *Operating environment* | Access constraints that degrade effective health system capacity |
 
-Which channels are active depends on the country's crisis **drivers** (conflict, drought, epidemic, ...), mapped through the crisis modifier matrix. Driver counts become a saturating weight $w = n/(n + \kappa)$, with $\kappa = 2$, so long driver lists cannot accumulate unbounded uplift. A country with a severity record but no matched driver receives a floor weight of 0.25, so that a gap in the matrix cannot switch the modifier off.
+Which channels are active depends on the country's crisis **drivers** (conflict, drought, epidemic, ...), mapped through the crisis modifier matrix. Driver counts become a saturating weight $w = n/(n + \kappa)$, with $\kappa = 2$, so long driver lists cannot accumulate unbounded uplift. A country with a severity record but none of whose drivers is in the matrix receives a floor weight of 1/3 on every component (the weight of one driver), so that a gap in the matrix cannot switch the modifier off. Countries with a matched driver keep exactly the channels the matrix gives them: a heatwave acts on hazard (environmental) and capacity, not on vulnerability. The matrix is versioned with the code (`inst/extdata/crisis_modifier_matrix.xlsx`), one TRUE/FALSE flag per driver and channel with its rationale, and is checked against the current INFORM drivers on every run (see the coverage tables below).
 
 **Bounded shift.** Each component is shifted on the log-odds scale:
 

@@ -139,9 +139,12 @@ crisis_modifier_flags <- function(x, name = "") {
 #' default `kappa = 2`). Saturation prevents countries with long driver lists
 #' from accumulating unbounded uplift.
 #'
-#' Countries that have a severity record but no driver matching a channel
-#' receive `w_floor` rather than zero, so that a coding gap in the driver matrix
-#' cannot silently switch the crisis modifier off.
+#' Countries that have a severity record but none of whose drivers is in the
+#' matrix (a coding gap, or only "Other") receive `w_floor` on every component
+#' rather than zero, so that a gap in the matrix cannot silently switch the
+#' crisis modifier off. The default, 1/3, is the weight of one matched driver.
+#' Countries with at least one matched driver keep the weights their drivers
+#' give, including 0 on components none of their drivers acts on.
 #'
 #' @param df A data frame with one row per country, containing the one-hot
 #'   `Driver *` columns produced by [preprocess_severity()] and a
@@ -162,7 +165,7 @@ severity_channel_weights <- function(df,
                                      cm_data = NULL,
                                      channel_map = default_channel_map(),
                                      kappa = 2,
-                                     w_floor = 0.25) {
+                                     w_floor = 1 / 3) {
 
   n_rows <- nrow(df)
   has_severity <- !is.na(df[["severity_index"]])
@@ -203,11 +206,12 @@ severity_channel_weights <- function(df,
   driver_matched <- rowSums(counts) > 0
 
   weights <- counts / (counts + kappa)
-  # Fall back to the floor where a crisis exists but no driver was matched
-  for (comp in components) {
-    needs_floor <- has_severity & weights[, comp] < w_floor
-    weights[needs_floor, comp] <- w_floor
-  }
+  # Fall back to the floor only where a crisis exists but none of its drivers
+  # is in the matrix (a coding gap, or "Other"). A country whose drivers are
+  # matched keeps its weights, including 0 on channels its drivers do not act
+  # on: flooring every component would override the matrix.
+  needs_floor <- has_severity & !driver_matched
+  weights[needs_floor, ] <- w_floor
   weights[!has_severity, ] <- 0
 
   out <- as.data.frame(weights)
@@ -294,7 +298,7 @@ add_severity_components <- function(df,
                                     channel_map = default_channel_map(),
                                     sources = default_severity_sources(),
                                     kappa = 2,
-                                    w_floor = 0.25) {
+                                    w_floor = 1 / 3) {
 
   components <- names(sources)
   score_cols <- stats::setNames(paste0(components, "_score"), components)
@@ -413,7 +417,7 @@ severity_calibration_table <- function(baseline = c(0.20, 0.35, 0.50, 0.65),
                                        n_drivers = c(0, 1, 2, 4, 6),
                                        betas = severity_betas(),
                                        kappa = 2,
-                                       w_floor = 0.25) {
+                                       w_floor = 1 / 3) {
 
   grid <- expand.grid(
     baseline = baseline,

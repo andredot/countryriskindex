@@ -10,7 +10,7 @@ severity_calibration_table(
   n_drivers = c(0, 1, 2, 4, 6),
   betas = severity_betas(),
   kappa = 2,
-  w_floor = 0.25
+  w_floor = 1/3
 )
 }
 \arguments{

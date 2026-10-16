@@ -9,7 +9,8 @@ risk_input_files()
 \value{
 A data frame with one row per input and columns \code{id}, \code{label},
 \code{group}, \code{file} (default relative path), \code{accept} (file extensions),
-\code{update} and \code{who_code} (WHO indicator code, \code{NA} for other sources).
+\code{update}, \code{location} and \code{who_code} (WHO indicator code, \code{NA} for other
+sources).
 }
 \description{
 The single list of source files behind \code{risk_score}, relative to the shared
@@ -28,4 +29,8 @@ DALY extract and the two INFORM workbooks.}
 keys, crisis modifier matrix) and HAQI, which is only updated with a new
 publication. Read from the shared input folder.}
 }
+
+Column \code{location} says where the default copy lives: \code{"shared"} (the
+shared input folder) or \code{"package"} (versioned with the code in
+\code{inst/extdata}, like the crisis modifier matrix).
 }

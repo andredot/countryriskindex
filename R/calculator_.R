@@ -19,9 +19,14 @@
 #'     publication. Read from the shared input folder.}
 #' }
 #'
+#' Column `location` says where the default copy lives: `"shared"` (the
+#' shared input folder) or `"package"` (versioned with the code in
+#' `inst/extdata`, like the crisis modifier matrix).
+#'
 #' @return A data frame with one row per input and columns `id`, `label`,
 #'   `group`, `file` (default relative path), `accept` (file extensions),
-#'   `update` and `who_code` (WHO indicator code, `NA` for other sources).
+#'   `update`, `location` and `who_code` (WHO indicator code, `NA` for other
+#'   sources).
 #' @export
 risk_input_files <- function() {
   data.frame(
@@ -52,6 +57,8 @@ risk_input_files <- function() {
                ".xlsx", ".xlsx", ".xlsx"),
     update = c("upload", "static", "static", "static", "download", "download",
                "upload", "upload", "static"),
+    location = c("shared", "shared", "shared", "shared", "shared", "shared",
+                 "shared", "shared", "package"),
     who_code = c(NA, NA, NA, NA, "9A706FD", "217795A", NA, NA, NA),
     stringsAsFactors = FALSE
   )
@@ -148,7 +155,25 @@ download_who_indicators <- function(dest_dir = tempdir(),
 risk_input_path <- function(id) {
   files <- risk_input_files()
   if (!id %in% files$id) stop("Unknown risk input '", id, "'.", call. = FALSE)
+  if (files$location[files$id == id] == "package") {
+    return(package_extdata_path(files$file[files$id == id]))
+  }
   get_input_data_path(files$file[files$id == id])
+}
+
+#' Path of a file shipped in `inst/extdata`
+#'
+#' Uses the installed package when available, otherwise the source tree
+#' (`inst/extdata`, relative to the project root), as when the functions are
+#' loaded with `targets::tar_source()`.
+#'
+#' @param file File name within `inst/extdata`.
+#' @return A path (which may not exist).
+#' @export
+package_extdata_path <- function(file) {
+  path <- system.file("extdata", file, package = "countryriskindex")
+  if (nzchar(path) && file.exists(path)) return(path)
+  file.path("inst", "extdata", file)
 }
 
 #' Default local paths of the risk score inputs
@@ -158,8 +183,8 @@ risk_input_path <- function(id) {
 #'   `NA` where the file does not exist in the shared input folder.
 #' @export
 default_risk_input_paths <- function(files = risk_input_files()) {
-  paths <- vapply(files$file, function(f) {
-    p <- suppressWarnings(get_input_data_path(f))
+  paths <- vapply(files$id, function(id) {
+    p <- suppressWarnings(risk_input_path(id))
     if (file.exists(p)) p else NA_character_
   }, character(1), USE.NAMES = FALSE)
   stats::setNames(paths, files$id)
@@ -304,10 +329,7 @@ write_risk_score_xlsx <- function(risk_score,
                                   reference_quantiles = NULL,
                                   log = NULL,
                                   extra = NULL) {
-  if (!requireNamespace("writexl", quietly = TRUE)) {
-    stop("Package 'writexl' is needed to write the Excel file: ",
-         "install it with renv::install(\"writexl\").", call. = FALSE)
-  }
+  writer <- xlsx_writer()
 
   # Headline columns first, then every diagnostic column as computed.
   first <- intersect(snapshot_columns(), names(risk_score))
@@ -332,8 +354,139 @@ write_risk_score_xlsx <- function(risk_score,
     if (is.data.frame(extra[[nm]])) sheets[[nm]] <- as.data.frame(extra[[nm]])
   }
 
-  writexl::write_xlsx(sheets, file)
+  writer(sheets, file)
   invisible(file)
+}
+
+#' Pick an installed Excel writer
+#'
+#' `writexl` when available, otherwise `openxlsx` or `openxlsx2`; an
+#' informative error when none is installed (the usual reason a download
+#' button "does nothing").
+#'
+#' @return A function `(sheets, file)` writing a named list of data frames.
+#' @noRd
+xlsx_writer <- function() {
+  if (requireNamespace("writexl", quietly = TRUE)) {
+    return(function(sheets, file) writexl::write_xlsx(sheets, file))
+  }
+  if (requireNamespace("openxlsx", quietly = TRUE)) {
+    return(function(sheets, file) openxlsx::write.xlsx(sheets, file))
+  }
+  if (requireNamespace("openxlsx2", quietly = TRUE)) {
+    return(function(sheets, file) openxlsx2::write_xlsx(sheets, file))
+  }
+  stop("No Excel writer is installed: run renv::install(\"writexl\") ",
+       "and renv::snapshot(), then restart the app.", call. = FALSE)
+}
+
+#' Write a results workbook up front, capturing any error
+#'
+#' The apps write the workbook as soon as the scores are computed, so that a
+#' failure is shown in the app instead of surfacing as a download that
+#' silently does nothing.
+#'
+#' @param write A function taking the path to write to.
+#' @return A list with `path` (`NA` on failure) and `error` (`NULL` on
+#'   success).
+#' @noRd
+prepare_workbook <- function(write) {
+  path <- tempfile("risk_score_", fileext = ".xlsx")
+  error <- tryCatch({
+    write(path)
+    if (!file.exists(path) || file.size(path) == 0) {
+      stop("the workbook was not written")
+    }
+    NULL
+  }, error = function(e) conditionMessage(e))
+  list(path = if (is.null(error)) path else NA_character_, error = error)
+}
+
+#' Folder where the apps save workbooks
+#'
+#' The project's shared output folder when `PRJ_SHARED_PATH` is set, otherwise
+#' `output/` under the working directory.
+#'
+#' @return A path.
+#' @export
+default_output_dir <- function() {
+  if (nzchar(Sys.getenv("PRJ_SHARED_PATH"))) {
+    return(get_output_data_path())
+  }
+  file.path(getwd(), "output")
+}
+
+#' Download and save controls for a results workbook
+#' @noRd
+workbook_ui <- function(label = "Download results (.xlsx)") {
+  shiny::tagList(
+    shiny::downloadButton("download", label),
+    shiny::actionButton("save_xlsx", "Save to output folder",
+                        icon = shiny::icon("floppy-disk")),
+    shiny::uiOutput("save_message")
+  )
+}
+
+#' Server side of [workbook_ui()]
+#'
+#' The download hands over the workbook prepared by [prepare_workbook()]; the
+#' save button copies it into `output_dir`, which works even where browser
+#' downloads do not (for instance the RStudio Viewer pane).
+#'
+#' @param result A reactive returning the app result, with `workbook` and
+#'   `finished` elements.
+#' @noRd
+register_workbook_outputs <- function(input, output, result, output_dir) {
+  file_name <- function() {
+    paste0("risk_score_",
+           format(result()$finished %||% Sys.time(), "%Y%m%d_%H%M%S"),
+           ".xlsx")
+  }
+
+  output$download <- shiny::downloadHandler(
+    filename = file_name,
+    content = function(file) {
+      wb <- result()$workbook
+      if (is.null(wb) || is.na(wb$path)) {
+        stop(wb$error %||% "No results to download yet.")
+      }
+      file.copy(wb$path, file, overwrite = TRUE)
+    },
+    contentType =
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  )
+
+  saved <- shiny::reactiveVal(NULL)
+  shiny::observeEvent(input$save_xlsx, {
+    wb <- result()$workbook
+    msg <- if (is.null(wb) || is.na(wb$path)) {
+      list(ok = FALSE, text = wb$error %||% "No results to save yet.")
+    } else {
+      dest <- file.path(output_dir, file_name())
+      ok <- tryCatch({
+        dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+        file.copy(wb$path, dest, overwrite = TRUE)
+      }, error = function(e) FALSE)
+      list(ok = ok, text = if (ok) paste("Saved to", normalizePath(dest)) else
+        paste("Could not write to", output_dir))
+    }
+    saved(msg)
+  })
+  output$save_message <- shiny::renderUI({
+    m <- saved()
+    if (is.null(m)) return(NULL)
+    shiny::div(class = if (m$ok) "text-success" else "text-danger",
+               style = "margin-top:6px;", m$text)
+  })
+}
+
+#' Status line for the workbook, shown under the results status
+#' @noRd
+workbook_status <- function(res) {
+  if (is.null(res$workbook$error)) return(NULL)
+  shiny::div(class = "alert alert-warning",
+             shiny::strong("The Excel file could not be written: "),
+             res$workbook$error)
 }
 
 #' Describe the input files of a run
@@ -371,6 +524,8 @@ describe_risk_inputs <- function(paths, names = NULL, origin = NULL) {
 #'
 #' @param defaults Named vector of default paths; see
 #'   [default_risk_input_paths()].
+#' @param output_dir Folder where "Save to output folder" writes the workbook;
+#'   see [default_output_dir()].
 #' @param max_upload_mb Maximum size of a single uploaded file, in MB.
 #' @param compute Function computing the score, see [compute_risk_score()].
 #'   Exposed for testing.
@@ -378,6 +533,7 @@ describe_risk_inputs <- function(paths, names = NULL, origin = NULL) {
 #' @return A `shiny.appobj`; printing it launches the app.
 #' @export
 run_calculator_app <- function(defaults = default_risk_input_paths(),
+                               output_dir = default_output_dir(),
                                max_upload_mb = 500,
                                compute = compute_risk_score) {
   files <- risk_input_files()
@@ -398,7 +554,7 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
         shiny::uiOutput("status"),
         shiny::conditionalPanel(
           "output.ready",
-          shiny::downloadButton("download", "Download risk_score.xlsx"),
+          workbook_ui("Download risk_score.xlsx"),
           shiny::h4("Top 15 countries by severity-adjusted risk"),
           shiny::tableOutput("preview"),
           shiny::h4("Inputs used"),
@@ -445,6 +601,12 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
 
       res$sources <- describe_risk_inputs(ch$paths, ch$names)
       res$finished <- Sys.time()
+      res$workbook <- prepare_workbook(function(path) {
+        write_risk_score_xlsx(res$risk_score, path,
+                              sources = res$sources,
+                              reference_quantiles = reference_quantiles,
+                              log = res$log)
+      })
       result(res)
     })
 
@@ -462,11 +624,14 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
           "Select the input files (empty inputs use the default shown below ",
           "them), then press ", shiny::strong("Calculate risk score"), "."))
       }
-      shiny::div(
-        class = "alert alert-success",
-        sprintf("Risk score computed for %d countries at %s.",
-                nrow(res$risk_score),
-                format(res$finished, "%Y-%m-%d %H:%M"))
+      shiny::tagList(
+        shiny::div(
+          class = "alert alert-success",
+          sprintf("Risk score computed for %d countries at %s.",
+                  nrow(res$risk_score),
+                  format(res$finished, "%Y-%m-%d %H:%M"))
+        ),
+        workbook_status(res)
       )
     })
 
@@ -490,20 +655,7 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
       shiny::req(result())$log
     })
 
-    output$download <- shiny::downloadHandler(
-      filename = function() {
-        paste0("risk_score_",
-               format(result()$finished %||% Sys.time(), "%Y%m%d_%H%M"),
-               ".xlsx")
-      },
-      content = function(file) {
-        res <- result()
-        write_risk_score_xlsx(res$risk_score, file,
-                              sources = res$sources,
-                              reference_quantiles = reference_quantiles,
-                              log = res$log)
-      }
-    )
+    register_workbook_outputs(input, output, result, output_dir)
   }
 
   shiny::shinyApp(
