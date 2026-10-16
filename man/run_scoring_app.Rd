@@ -6,7 +6,9 @@
 \usage{
 run_scoring_app(
   baseline = NULL,
-  defaults = NULL,
+  defaults = default_risk_input_paths(),
+  download_who = TRUE,
+  who_downloader = download_who_indicators,
   max_upload_mb = 500,
   compute = compute_risk_score,
   debounce_ms = 1000
@@ -16,9 +18,15 @@ run_scoring_app(
 \item{baseline}{Optional scored data frame to compare against, typically
 \code{targets::tar_read(risk_score)}.}
 
-\item{defaults}{Optional named vector of default paths (see
-\code{\link[=default_risk_input_paths]{default_risk_input_paths()}}) used for inputs left empty. \code{NULL} (the
-default) means every file must be uploaded.}
+\item{defaults}{Named vector of local paths (see
+\code{\link[=default_risk_input_paths]{default_risk_input_paths()}}) for the static inputs and as fallback for
+the WHO downloads. Never used for the GBD and INFORM uploads.}
+
+\item{download_who}{Whether to download the WHO indicators at start-up;
+\code{FALSE} uses the local copies.}
+
+\item{who_downloader}{Function fetching the WHO indicators, see
+\code{\link[=download_who_indicators]{download_who_indicators()}}. Exposed for testing.}
 
 \item{max_upload_mb}{Maximum size of a single uploaded file, in MB.}
 
@@ -32,9 +40,21 @@ several files dropped in quick succession trigger one computation.}
 A \code{shiny.appobj}; printing it launches the app.
 }
 \description{
-Upload the source files (GBD, WHO, INFORM Risk and Severity, crisis modifier
-matrix) and the app recomputes the scores on the fly: as soon as every input
-is present, and again whenever one is replaced. It runs exactly the steps of
+Upload the files that change with each data round - the GBD DALY extract and
+the INFORM Risk and Severity workbooks - and the app recomputes the scores on
+the fly: as soon as all three are present, and again whenever one is
+replaced. The other inputs are not uploaded (see the \code{update} column of
+\code{\link[=risk_input_files]{risk_input_files()}}):
+\itemize{
+\item the WHO indicators are downloaded from the WHO data portal when the
+app starts (\code{\link[=download_who_indicators]{download_who_indicators()}}), falling back to the local copy;
+\item the reference tables (location keys, crisis modifier matrix) and
+HAQI are read from the shared input folder.
+}
+Should any of these be unavailable, an upload field appears for it.
+}
+\details{
+It runs exactly the steps of
 the \code{risk_score} target (\code{\link[=compute_risk_score]{compute_risk_score()}}), then the decomposition
 (\code{\link[=build_decomposition]{build_decomposition()}}) and the effective weights
 (\code{\link[=summarise_global_weights]{summarise_global_weights()}}), and shows:
@@ -46,8 +66,4 @@ the \code{risk_score} target (\code{\link[=compute_risk_score]{compute_risk_scor
 \item the inputs used and the time each step took.
 }
 Everything can be downloaded as one Excel workbook.
-}
-\details{
-Unlike \code{\link[=run_calculator_app]{run_calculator_app()}}, nothing is read from the shared input folder
-unless \code{defaults} is supplied: by default every file must be uploaded.
 }

@@ -4,13 +4,16 @@
 \alias{describe_risk_inputs}
 \title{Describe the input files of a run}
 \usage{
-describe_risk_inputs(paths, names = NULL)
+describe_risk_inputs(paths, names = NULL, origin = NULL)
 }
 \arguments{
 \item{paths}{Named vector of paths actually read, ids as names.}
 
 \item{names}{Optional named vector of display names (e.g. the original
 names of uploaded files); defaults to the base names of \code{paths}.}
+
+\item{origin}{Optional named vector saying how each file was obtained
+(uploaded, downloaded, local copy, ...).}
 }
 \value{
 A data frame with one row per input: label, file, size, modification

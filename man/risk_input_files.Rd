@@ -8,11 +8,24 @@ risk_input_files()
 }
 \value{
 A data frame with one row per input and columns \code{id}, \code{label},
-\code{group}, \code{file} (default relative path) and \code{accept} (file extensions).
+\code{group}, \code{file} (default relative path), \code{accept} (file extensions),
+\code{update} and \code{who_code} (WHO indicator code, \code{NA} for other sources).
 }
 \description{
 The single list of source files behind \code{risk_score}, relative to the shared
 input folder (see \code{get_input_data_path()}). Both \verb{_targets.R} and
 \code{\link[=run_calculator_app]{run_calculator_app()}} read their defaults from here, so a new data round
 only needs updating in one place.
+}
+\details{
+How each input is refreshed (column \code{update}), following \code{sources.md}:
+\describe{
+\item{upload}{Changes with every data round and must be supplied: the GBD
+DALY extract and the two INFORM workbooks.}
+\item{download}{Fetched from the WHO data portal on demand (see
+\code{\link[=download_who_indicators]{download_who_indicators()}}), falling back to the local copy.}
+\item{static}{Reference tables that do not change between rounds (location
+keys, crisis modifier matrix) and HAQI, which is only updated with a new
+publication. Read from the shared input folder.}
+}
 }

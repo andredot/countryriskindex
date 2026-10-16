@@ -1,8 +1,19 @@
 #' Launch the live scoring app
 #'
-#' Upload the source files (GBD, WHO, INFORM Risk and Severity, crisis modifier
-#' matrix) and the app recomputes the scores on the fly: as soon as every input
-#' is present, and again whenever one is replaced. It runs exactly the steps of
+#' Upload the files that change with each data round - the GBD DALY extract and
+#' the INFORM Risk and Severity workbooks - and the app recomputes the scores on
+#' the fly: as soon as all three are present, and again whenever one is
+#' replaced. The other inputs are not uploaded (see the `update` column of
+#' [risk_input_files()]):
+#' \itemize{
+#'   \item the WHO indicators are downloaded from the WHO data portal when the
+#'     app starts ([download_who_indicators()]), falling back to the local copy;
+#'   \item the reference tables (location keys, crisis modifier matrix) and
+#'     HAQI are read from the shared input folder.
+#' }
+#' Should any of these be unavailable, an upload field appears for it.
+#'
+#' It runs exactly the steps of
 #' the `risk_score` target ([compute_risk_score()]), then the decomposition
 #' ([build_decomposition()]) and the effective weights
 #' ([summarise_global_weights()]), and shows:
@@ -15,14 +26,15 @@
 #' }
 #' Everything can be downloaded as one Excel workbook.
 #'
-#' Unlike [run_calculator_app()], nothing is read from the shared input folder
-#' unless `defaults` is supplied: by default every file must be uploaded.
-#'
 #' @param baseline Optional scored data frame to compare against, typically
 #'   `targets::tar_read(risk_score)`.
-#' @param defaults Optional named vector of default paths (see
-#'   [default_risk_input_paths()]) used for inputs left empty. `NULL` (the
-#'   default) means every file must be uploaded.
+#' @param defaults Named vector of local paths (see
+#'   [default_risk_input_paths()]) for the static inputs and as fallback for
+#'   the WHO downloads. Never used for the GBD and INFORM uploads.
+#' @param download_who Whether to download the WHO indicators at start-up;
+#'   `FALSE` uses the local copies.
+#' @param who_downloader Function fetching the WHO indicators, see
+#'   [download_who_indicators()]. Exposed for testing.
 #' @param max_upload_mb Maximum size of a single uploaded file, in MB.
 #' @param compute Function computing the score, see [compute_risk_score()].
 #'   Exposed for testing.
@@ -32,12 +44,18 @@
 #' @return A `shiny.appobj`; printing it launches the app.
 #' @export
 run_scoring_app <- function(baseline = NULL,
-                            defaults = NULL,
+                            defaults = default_risk_input_paths(),
+                            download_who = TRUE,
+                            who_downloader = download_who_indicators,
                             max_upload_mb = 500,
                             compute = compute_risk_score,
                             debounce_ms = 1000) {
   files <- risk_input_files()
   reference_quantiles <- read_reference_quantiles()
+  upload_ids <- files$id[files$update == "upload"]
+  static_ids <- files$id[files$update == "static"]
+  who_ids <- files$id[files$update == "download"]
+  defaults <- complete_defaults(defaults, files)
 
   ui <- shiny::fluidPage(
     shiny::titlePanel("Country Risk Index: live scoring"),
@@ -45,7 +63,19 @@ run_scoring_app <- function(baseline = NULL,
       shiny::sidebarPanel(
         width = 3,
         shiny::uiOutput("upload_status"),
-        risk_input_pickers(defaults)
+        risk_input_pickers(NULL, ids = upload_ids, advanced = FALSE),
+        shiny::uiOutput("fallback_pickers"),
+        shiny::hr(),
+        shiny::h4("Automatic inputs"),
+        shiny::uiOutput("auto_inputs"),
+        shiny::tags$details(
+          shiny::tags$summary("Advanced"),
+          shiny::numericInput("inform_risk_sheet",
+                              "INFORM Risk: indicators sheet", 2, min = 1),
+          shiny::numericInput("inform_lcc_sheet",
+                              "INFORM Risk: Lack of Coping Capacity sheet", 5,
+                              min = 1)
+        )
       ),
       shiny::mainPanel(
         width = 9,
@@ -111,7 +141,90 @@ run_scoring_app <- function(baseline = NULL,
     result <- shiny::reactiveVal(NULL)
     error <- shiny::reactiveVal(NULL)
 
-    chosen <- shiny::reactive(chosen_risk_inputs(input, defaults))
+    # WHO indicators: downloaded once per session, local copy as fallback.
+    # The observer reads no reactive value, so it runs exactly once.
+    who <- shiny::reactiveVal(NULL)
+    shiny::observe(shiny::isolate({
+      res <- if (download_who) {
+        shiny::withProgress(
+          message = "Downloading WHO indicators", value = 0.5,
+          tryCatch(who_downloader(dest_dir = tempfile("who_"),
+                                  fallback = defaults),
+                   error = function(e) NULL))
+      } else {
+        NULL
+      }
+      if (is.null(res)) {
+        local <- defaults[who_ids]
+        res <- data.frame(
+          id = who_ids, path = unname(local),
+          origin = ifelse(is.na(local), "unavailable", "local copy"),
+          detail = if (download_who) "Download failed" else "Download disabled",
+          stringsAsFactors = FALSE)
+      }
+      who(res)
+    }))
+
+    # Paths of the inputs that are not uploaded (NA where unavailable).
+    automatic <- shiny::reactive({
+      w <- who()
+      who_paths <- if (is.null(w)) {
+        stats::setNames(rep(NA_character_, length(who_ids)), who_ids)
+      } else {
+        stats::setNames(w$path, w$id)[who_ids]
+      }
+      c(defaults[static_ids], who_paths)
+    })
+    # Automatic inputs that turned out to be unavailable get an upload field.
+    fallback_ids <- shiny::reactive({
+      auto <- automatic()
+      missing <- names(auto)[is.na(auto)]
+      if (is.null(who())) setdiff(missing, who_ids) else missing
+    })
+    output$fallback_pickers <- shiny::renderUI({
+      ids <- fallback_ids()
+      if (length(ids) == 0) return(NULL)
+      shiny::tagList(
+        shiny::div(class = "alert alert-warning",
+                   "Not found locally or online - please upload:"),
+        risk_input_pickers(NULL, ids = ids, advanced = FALSE)
+      )
+    })
+
+    chosen <- shiny::reactive(chosen_risk_inputs(input, automatic()))
+
+    origin <- shiny::reactive({
+      ch <- chosen()
+      w <- who()
+      out <- stats::setNames(rep("static (shared folder)", nrow(files)),
+                             files$id)
+      if (!is.null(w)) out[w$id] <- w$origin
+      for (id in files$id) {
+        if (!is.null(input[[paste0("file_", id)]])) out[id] <- "uploaded"
+      }
+      out
+    })
+
+    output$auto_inputs <- shiny::renderUI({
+      auto <- automatic()
+      w <- who()
+      rows <- lapply(c(who_ids, static_ids), function(id) {
+        label <- files$label[files$id == id]
+        status <- if (id %in% who_ids) {
+          if (is.null(w)) "downloading..." else {
+            r <- w[w$id == id, ]
+            paste0(r$origin, if (r$origin != "downloaded")
+              paste0(" (", r$detail, ")"))
+          }
+        } else if (is.na(auto[[id]])) {
+          "not found"
+        } else {
+          basename(auto[[id]])
+        }
+        shiny::tags$li(shiny::strong(label), ": ", status)
+      })
+      shiny::tags$ul(style = "padding-left:18px; font-size:90%;", rows)
+    })
 
     # Recompute on the fly: whenever the set of files or the INFORM sheets
     # change, once nothing has changed for `debounce_ms`.
@@ -166,7 +279,7 @@ run_scoring_app <- function(baseline = NULL,
         return()
       }
 
-      res$sources <- describe_risk_inputs(ch$paths, ch$names)
+      res$sources <- describe_risk_inputs(ch$paths, ch$names, origin())
       res$finished <- Sys.time()
       error(NULL)
       result(res)
@@ -181,10 +294,13 @@ run_scoring_app <- function(baseline = NULL,
     shiny::outputOptions(output, "ready", suspendWhenHidden = FALSE)
 
     output$upload_status <- shiny::renderUI({
-      n_ok <- sum(!is.na(chosen()$paths))
+      ready <- !is.na(chosen()$paths)
+      n_up <- sum(ready[upload_ids])
       shiny::tags$p(
-        shiny::strong(sprintf("%d of %d inputs ready", n_ok, nrow(files))),
-        if (n_ok == nrow(files)) " - scores update automatically."
+        shiny::strong(sprintf("%d of %d uploads ready", n_up,
+                              length(upload_ids))),
+        if (all(ready)) " - scores update automatically." else
+          if (n_up == length(upload_ids)) " - waiting for the automatic inputs."
       )
     })
 
@@ -199,8 +315,9 @@ run_scoring_app <- function(baseline = NULL,
         missing <- files$label[is.na(chosen()$paths)]
         return(shiny::div(
           class = "alert alert-info",
-          "Upload the input files on the left. Scores are computed as soon ",
-          "as all of them are present, and recomputed whenever one changes.",
+          "Upload the GBD and INFORM files on the left. Scores are computed ",
+          "as soon as all inputs are present, and recomputed whenever one ",
+          "changes.",
           if (length(missing) > 0) {
             shiny::tagList(shiny::br(), shiny::strong("Still missing: "),
                            paste(missing, collapse = "; "))
@@ -292,7 +409,8 @@ run_scoring_app <- function(baseline = NULL,
     })
 
     output$sources <- shiny::renderTable({
-      shiny::req(result())$sources[, c("input", "file", "size_kb", "modified")]
+      shiny::req(result())$sources[, c("input", "origin", "file", "size_kb",
+                                       "modified")]
     })
 
     output$log <- shiny::renderTable(shiny::req(result())$log)

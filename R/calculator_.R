@@ -8,8 +8,20 @@
 #' [run_calculator_app()] read their defaults from here, so a new data round
 #' only needs updating in one place.
 #'
+#' How each input is refreshed (column `update`), following `sources.md`:
+#' \describe{
+#'   \item{upload}{Changes with every data round and must be supplied: the GBD
+#'     DALY extract and the two INFORM workbooks.}
+#'   \item{download}{Fetched from the WHO data portal on demand (see
+#'     [download_who_indicators()]), falling back to the local copy.}
+#'   \item{static}{Reference tables that do not change between rounds (location
+#'     keys, crisis modifier matrix) and HAQI, which is only updated with a new
+#'     publication. Read from the shared input folder.}
+#' }
+#'
 #' @return A data frame with one row per input and columns `id`, `label`,
-#'   `group`, `file` (default relative path) and `accept` (file extensions).
+#'   `group`, `file` (default relative path), `accept` (file extensions),
+#'   `update` and `who_code` (WHO indicator code, `NA` for other sources).
 #' @export
 risk_input_files <- function() {
   data.frame(
@@ -38,8 +50,94 @@ risk_input_files <- function() {
              "crisis_modifier_matrix.xlsx"),
     accept = c(".csv", ".csv", ".csv", ".xlsx", ".csv", ".csv",
                ".xlsx", ".xlsx", ".xlsx"),
+    update = c("upload", "static", "static", "static", "download", "download",
+               "upload", "upload", "static"),
+    who_code = c(NA, NA, NA, NA, "9A706FD", "217795A", NA, NA, NA),
     stringsAsFactors = FALSE
   )
+}
+
+#' Download URL of a WHO indicator
+#'
+#' The WHO data portal (data.who.int) publishes each indicator's full dataset
+#' as `<code>_ALL_LATEST.csv`; this is the file stored in the shared input
+#' folder. The URL template can be overridden with
+#' `options(countryriskindex.who_url_template = "...")`, where `%s` stands for
+#' the indicator code, should the portal move it.
+#'
+#' @param code WHO indicator code, e.g. `"9A706FD"`.
+#' @return A URL.
+#' @export
+who_indicator_url <- function(code) {
+  template <- getOption(
+    "countryriskindex.who_url_template",
+    "https://srhdpeuwpubsa.blob.core.windows.net/whdh/DATADOT/INDICATOR/%s_ALL_LATEST.csv"
+  )
+  sprintf(template, code)
+}
+
+#' Download the WHO indicators used by the index
+#'
+#' Fetches each WHO input of [risk_input_files()] from the WHO data portal and
+#' checks that the file has the layout the pipeline reads (`GEO_NAME_SHORT`,
+#' `DIM_TIME`, `DIM_GEO_CODE_TYPE`, `IND_NAME`). When a download fails or the
+#' file does not look right, the local copy in `fallback` is used instead, and
+#' the result says so.
+#'
+#' To refresh the copies used by the pipeline, download straight into the
+#' shared folder:
+#' `download_who_indicators(dirname(risk_input_path("who_uhc")))`.
+#'
+#' @param dest_dir Directory to download into.
+#' @param fallback Named vector of local paths to use when a download fails;
+#'   see [default_risk_input_paths()].
+#' @param timeout Seconds allowed per download.
+#'
+#' @return A data frame with one row per WHO input: `id`, `path` (`NA` when
+#'   neither download nor local copy is available), `origin` (`"downloaded"`,
+#'   `"local copy"` or `"unavailable"`) and `detail` (URL or error).
+#' @export
+download_who_indicators <- function(dest_dir = tempdir(),
+                                    fallback = default_risk_input_paths(),
+                                    timeout = 120) {
+  files <- risk_input_files()
+  files <- files[files$update == "download", , drop = FALSE]
+  fallback <- complete_defaults(fallback)
+  dir.create(dest_dir, showWarnings = FALSE, recursive = TRUE)
+  needed <- c("GEO_NAME_SHORT", "DIM_TIME", "DIM_GEO_CODE_TYPE", "IND_NAME")
+
+  rows <- lapply(seq_len(nrow(files)), function(i) {
+    id <- files$id[i]
+    url <- who_indicator_url(files$who_code[i])
+    dest <- file.path(dest_dir, basename(files$file[i]))
+    error <- tryCatch({
+      old <- options(timeout = max(timeout, getOption("timeout")))
+      on.exit(options(old), add = TRUE)
+      utils::download.file(url, dest, mode = "wb", quiet = TRUE)
+      head <- utils::read.csv(dest, nrows = 5, check.names = FALSE)
+      missing <- setdiff(needed, names(head))
+      if (length(missing) > 0) {
+        stop("unexpected file layout (missing ",
+             paste(missing, collapse = ", "), ")")
+      }
+      NULL
+    }, error = function(e) conditionMessage(e),
+    warning = function(w) conditionMessage(w))
+
+    if (is.null(error)) {
+      return(data.frame(id = id, path = dest, origin = "downloaded",
+                        detail = url, stringsAsFactors = FALSE))
+    }
+    local <- fallback[[id]]
+    data.frame(
+      id = id,
+      path = if (!is.na(local)) local else NA_character_,
+      origin = if (!is.na(local)) "local copy" else "unavailable",
+      detail = paste("Download failed:", error),
+      stringsAsFactors = FALSE
+    )
+  })
+  do.call(rbind, rows)
 }
 
 #' Path of one risk score input in the shared input folder
@@ -243,16 +341,19 @@ write_risk_score_xlsx <- function(risk_score,
 #' @param paths Named vector of paths actually read, ids as names.
 #' @param names Optional named vector of display names (e.g. the original
 #'   names of uploaded files); defaults to the base names of `paths`.
+#' @param origin Optional named vector saying how each file was obtained
+#'   (uploaded, downloaded, local copy, ...).
 #' @return A data frame with one row per input: label, file, size, modification
 #'   time and MD5 checksum, so a workbook can be traced back to its sources.
 #' @export
-describe_risk_inputs <- function(paths, names = NULL) {
+describe_risk_inputs <- function(paths, names = NULL, origin = NULL) {
   files <- risk_input_files()
   paths <- unlist(paths)[files$id]
   shown <- if (is.null(names)) basename(paths) else unlist(names)[files$id]
   info <- file.info(paths)
   data.frame(
     input = files$label,
+    origin = if (is.null(origin)) "" else unname(unlist(origin)[files$id]),
     file = shown,
     size_kb = round(info$size / 1024, 1),
     modified = format(info$mtime, "%Y-%m-%d %H:%M"),
@@ -421,10 +522,14 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
 #' @param defaults Named vector of default paths (see
 #'   [default_risk_input_paths()]), or `NULL` when every file must be uploaded.
 #' @param files Output of [risk_input_files()].
+#' @param ids Ids of the inputs to offer a picker for.
+#' @param advanced Whether to include the INFORM sheet selectors.
 #' @return A `shiny.tag.list`.
 #' @noRd
-risk_input_pickers <- function(defaults = NULL, files = risk_input_files()) {
+risk_input_pickers <- function(defaults = NULL, files = risk_input_files(),
+                               ids = files$id, advanced = TRUE) {
   defaults <- complete_defaults(defaults, files)
+  files <- files[files$id %in% ids, , drop = FALSE]
 
   picker <- function(i) {
     id <- files$id[i]
@@ -448,7 +553,7 @@ risk_input_pickers <- function(defaults = NULL, files = risk_input_files()) {
     lapply(unique(files$group), function(g) {
       shiny::tagList(shiny::h4(g), lapply(which(files$group == g), picker))
     }),
-    shiny::tags$details(
+    if (advanced) shiny::tags$details(
       shiny::tags$summary("Advanced"),
       shiny::numericInput("inform_risk_sheet",
                           "INFORM Risk: indicators sheet", 2, min = 1),
