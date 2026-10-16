@@ -143,6 +143,9 @@ preprocess_severity <- function(df) {
     dplyr::select(where(~ !all(is.na(.)))) |>
     # One-hot encode the DRIVERS column
     tidyr::separate_longer_delim(DRIVERS, delim = ",") |>
+    # "Conflict, Floods" splits into "Conflict" and " Floods": without the trim
+    # every driver after the first would never match the crisis modifier matrix.
+    dplyr::mutate(DRIVERS = stringr::str_squish(DRIVERS)) |>
     dplyr::mutate(dummy = 1) |>
     tidyr::pivot_wider(names_from = DRIVERS,
                        names_prefix = "Driver ",

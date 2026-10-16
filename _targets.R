@@ -115,6 +115,10 @@ list(
   tar_target(crisis_modifier_share, summarise_crisis_share(risk_score)),
   tar_target(fig_crisis_modifier_share, createimg_severity_uplift(risk_score)),
   tar_target(severity_effect_table, summarise_severity_effect(risk_score)),
+  # Crisis modifier matrix vs the current INFORM Severity drivers: label-only
+  # channels, drivers missing from the matrix, drivers no country has now.
+  tar_target(crisis_modifier_audit,
+             audit_crisis_modifier_matrix(cm_data, risk_score)),
 
   # Data completeness
   tar_target(map_completeness, createmap_completeness(risk_score)),

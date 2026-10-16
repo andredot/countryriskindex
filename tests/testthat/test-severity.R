@@ -115,3 +115,58 @@ test_that("update_score honours `times` exactly", {
   # times = 0 is the identity
   expect_equal(update_score(0.5, 5, times = 0), 0.5)
 })
+
+test_that("driver names match across spellings and comma-space lists", {
+  expect_equal(driver_key(c("Land slide", "Landslide", "Food Security",
+                            "food-security")),
+               c("landslide", "landslide", "foodsecurity", "foodsecurity"))
+
+  sev <- data.frame(COUNTRY = c("meta", "A", "B"), ISO3 = c("M", "AAA", "BBB"),
+                    CRISIS = "x", DRIVERS = c("x", "Conflict, Floods", "Landslide"),
+                    `INFORM Severity Index` = c(NA, 4, 3),
+                    `Operating environment` = 3, `Complexity of the crisis` = 3,
+                    `Conditions of people affected` = 3,
+                    `Impact of the crisis` = 3, check.names = FALSE)
+  p <- preprocess_severity(sev)
+  expect_setequal(grep("^Driver", names(p), value = TRUE),
+                  c("Driver Conflict", "Driver Floods", "Driver Landslide"))
+
+  cm <- data.frame(Driver = c("Conflict", "Floods", "Land slide"),
+                   `Traumatic/Violent injuries` = c(TRUE, TRUE, TRUE),
+                   Vulnerability = c(TRUE, FALSE, FALSE),
+                   Capacity = c("x", "", "x"), check.names = FALSE)
+  w <- severity_channel_weights(p, cm)
+  expect_equal(w$n_drivers_hazard[p$ISO3 == "AAA"], 2)
+  expect_equal(w$n_drivers_hazard[p$ISO3 == "BBB"], 1)
+  expect_equal(w$n_drivers_vulnerability[p$ISO3 == "AAA"], 1)
+  expect_equal(w$n_drivers_capacity[p$ISO3 == "AAA"], 1)
+})
+
+test_that("label columns are flagged and applied to every driver", {
+  expect_equal(crisis_modifier_flags(c("TRUE", "false", NA, "x", "1")),
+               c(TRUE, FALSE, FALSE, TRUE, TRUE))
+  expect_equal(crisis_modifier_flags(c(0, 2, NA)), c(FALSE, TRUE, FALSE))
+  expect_warning(f <- crisis_modifier_flags(c("CotC-OE", "CotC-OE"), "Capacity"),
+                 "holds labels")
+  expect_equal(f, c(TRUE, TRUE))
+})
+
+test_that("audit_crisis_modifier_matrix() reports gaps", {
+  cm <- data.frame(Driver = c("Conflict", "Drought"),
+                   `Communicable diseases` = c(FALSE, TRUE),
+                   Vulnerability = "CotC-SaS", Capacity = c(TRUE, FALSE),
+                   check.names = FALSE)
+  d <- data.frame(ISO3 = c("A", "B", "C"), severity_index = c(3, 4, NA),
+                  `Driver Conflict` = c(1, 0, 0),
+                  `Driver Economic` = c(0, 1, 0),
+                  driver_matched = c(TRUE, FALSE, FALSE), check.names = FALSE)
+  a <- audit_crisis_modifier_matrix(cm, d)
+  st <- stats::setNames(a$channels$status, a$channels$channel)
+  expect_equal(unname(st["Vulnerability"]), "labels")
+  expect_equal(unname(st["Capacity"]), "flags")
+  expect_equal(unname(st["WASH"]), "missing")
+  expect_equal(a$unmatched$driver, "Economic")
+  expect_equal(a$drivers$countries_now, c(1, 0))
+  expect_equal(a$summary$countries_on_floor_weight, 1)
+  expect_equal(a$summary$matrix_drivers_unused_now, 1)
+})

@@ -30,7 +30,7 @@
 default_channel_map <- function() {
   list(
     hazard = c("Communicable diseases", "Traumatic/Violent injuries",
-               "WASH", "Environmental"),
+               "WASH", "Environmental", "Nutrition"),
     vulnerability = c("Vulnerability"),
     capacity = c("Capacity")
   )
@@ -81,6 +81,50 @@ default_severity_sources <- function() {
 #' severity_betas()
 severity_betas <- function() {
   c(hazard = 0.8, vulnerability = 1.0, capacity = 1.0)
+}
+
+#' Normalised key for matching crisis driver names
+#'
+#' Lower case, letters and digits only: `"Land slide"`, `"Landslide"` and
+#' `"land-slide"` all give `"landslide"`.
+#'
+#' @param x Character vector of driver names.
+#' @return A character vector of keys.
+#' @export
+driver_key <- function(x) {
+  tolower(gsub("[^[:alnum:]]", "", as.character(x)))
+}
+
+#' Read one channel column of the crisis modifier matrix as flags
+#'
+#' Accepts logical columns, numbers (`> 0` means the driver acts on the
+#' channel) and the usual spreadsheet spellings (`TRUE`/`FALSE`, `1`/`0`,
+#' `yes`/`no`, `x`/blank). A column holding any other text - such as the
+#' `CotC-OE` labels that name an INFORM sub-dimension rather than flag a
+#' driver - cannot discriminate between drivers: it is treated as applying to
+#' every driver, which is what earlier versions did implicitly, and a warning
+#' says so.
+#'
+#' @param x A column of the matrix.
+#' @param name Its name, for the warning.
+#' @return A logical vector, `FALSE` where missing.
+#' @export
+crisis_modifier_flags <- function(x, name = "") {
+  if (is.logical(x)) return(!is.na(x) & x)
+  if (is.numeric(x)) return(!is.na(x) & x > 0)
+  v <- tolower(trimws(as.character(x)))
+  yes <- c("true", "1", "yes", "y", "x")
+  no <- c("false", "0", "no", "n", "")
+  known <- is.na(v) | v %in% c(yes, no)
+  if (all(known)) return(!is.na(v) & v %in% yes)
+  warning(
+    "Crisis modifier matrix: column '", name, "' holds labels (",
+    paste(utils::head(unique(v[!known]), 3), collapse = ", "),
+    ") rather than TRUE/FALSE flags, so it applies to every driver and ",
+    "cannot tell drivers apart. Replace it with one flag per driver.",
+    call. = FALSE
+  )
+  !is.na(v) & nzchar(v)
 }
 
 #' Compute per-country severity channel weights from crisis drivers
@@ -137,15 +181,16 @@ severity_channel_weights <- function(df,
       if (length(channels) == 0) next
 
       # Drivers in the matrix that act on at least one channel of this component
-      acts <- rowSums(
-        as.matrix(cm_data[, channels, drop = FALSE]) > 0,
-        na.rm = TRUE
-      ) > 0
+      flags <- vapply(channels, function(ch) {
+        crisis_modifier_flags(cm_data[[ch]], ch)
+      }, logical(nrow(cm_data)))
+      acts <- rowSums(matrix(flags, nrow = nrow(cm_data))) > 0
       relevant_drivers <- as.character(cm_data$Driver[acts])
 
-      # Match to the one-hot columns, which are prefixed "Driver "
-      matching_cols <- intersect(paste0("Driver ", relevant_drivers),
-                                 driver_cols)
+      # Match to the one-hot columns ("Driver <name>") on a normalised key, so
+      # that "Land slide"/"Landslide" or "Food Security"/"Food security" agree.
+      data_keys <- driver_key(sub("^Driver ", "", driver_cols))
+      matching_cols <- driver_cols[data_keys %in% driver_key(relevant_drivers)]
       if (length(matching_cols) == 0) next
 
       counts[, comp] <- rowSums(
@@ -396,4 +441,101 @@ severity_calibration_table <- function(baseline = c(0.20, 0.35, 0.50, 0.65),
   grid$uplift_v4_0 <- grid$risk_v4_0 - grid$baseline
 
   grid
+}
+
+#' Audit the crisis modifier matrix against the current INFORM Severity data
+#'
+#' Checks the three things that silently weaken the crisis modifier:
+#' \enumerate{
+#'   \item channel columns that are missing, or hold labels instead of
+#'     per-driver flags (they then apply to every driver and carry no
+#'     information);
+#'   \item drivers that appear in INFORM Severity but not in the matrix (their
+#'     countries fall back to the floor weight);
+#'   \item drivers in the matrix that no country currently has.
+#' }
+#'
+#' @param cm_data The crisis modifier matrix.
+#' @param risk_score A data frame with the one-hot `Driver *` columns and
+#'   `severity_index`, e.g. the output of [add_severity()].
+#' @param channel_map Named list mapping components to channel columns.
+#'
+#' @return A list with data frames `channels` (one row per expected channel:
+#'   component, status `"flags"`, `"labels"` or `"missing"`, drivers flagged),
+#'   `drivers` (one row per matrix driver: parsed flags, countries affected
+#'   now), `unmatched` (INFORM drivers absent from the matrix, with country
+#'   counts) and `summary`.
+#' @export
+audit_crisis_modifier_matrix <- function(cm_data, risk_score,
+                                         channel_map = default_channel_map()) {
+  cm <- as.data.frame(cm_data)
+  d <- as.data.frame(risk_score)
+
+  channels <- do.call(rbind, lapply(names(channel_map), function(comp) {
+    do.call(rbind, lapply(channel_map[[comp]], function(ch) {
+      if (!ch %in% names(cm)) {
+        return(data.frame(component = comp, channel = ch, status = "missing",
+                          drivers_flagged = NA_integer_,
+                          stringsAsFactors = FALSE))
+      }
+      flags <- suppressWarnings(crisis_modifier_flags(cm[[ch]], ch))
+      v <- tolower(trimws(as.character(cm[[ch]])))
+      labels <- !is.logical(cm[[ch]]) && !is.numeric(cm[[ch]]) &&
+        any(!is.na(v) & !v %in% c("true", "false", "1", "0", "yes", "no",
+                                   "y", "n", "x", ""))
+      data.frame(component = comp, channel = ch,
+                 status = if (labels) "labels" else "flags",
+                 drivers_flagged = sum(flags), stringsAsFactors = FALSE)
+    }))
+  }))
+
+  driver_cols <- grep("^Driver ", names(d), value = TRUE)
+  data_names <- sub("^Driver ", "", driver_cols)
+  n_countries <- vapply(driver_cols, function(cl) {
+    sum(suppressWarnings(as.numeric(d[[cl]])) > 0, na.rm = TRUE)
+  }, numeric(1))
+  data_key <- driver_key(data_names)
+
+  present <- intersect(unlist(channel_map), names(cm))
+  drivers <- data.frame(Driver = as.character(cm$Driver),
+                        stringsAsFactors = FALSE)
+  for (ch in present) {
+    drivers[[ch]] <- suppressWarnings(crisis_modifier_flags(cm[[ch]], ch))
+  }
+  drivers$countries_now <- vapply(driver_key(drivers$Driver), function(k) {
+    sum(n_countries[data_key == k])
+  }, numeric(1))
+
+  unmatched <- data.frame(
+    driver = data_names,
+    countries_now = unname(n_countries),
+    stringsAsFactors = FALSE
+  )
+  unmatched <- unmatched[!data_key %in% driver_key(cm$Driver) &
+                           unmatched$countries_now > 0, , drop = FALSE]
+  unmatched <- unmatched[order(-unmatched$countries_now), , drop = FALSE]
+  rownames(unmatched) <- NULL
+
+  has_sev <- if ("severity_index" %in% names(d)) {
+    !is.na(d$severity_index)
+  } else {
+    rep(FALSE, nrow(d))
+  }
+  matched <- if ("driver_matched" %in% names(d)) {
+    d$driver_matched %in% TRUE
+  } else {
+    rep(NA, nrow(d))
+  }
+  summary <- data.frame(
+    countries_with_severity = sum(has_sev),
+    countries_with_matched_driver = sum(matched & has_sev, na.rm = TRUE),
+    countries_on_floor_weight = sum(!matched & has_sev, na.rm = TRUE),
+    matrix_drivers = nrow(cm),
+    matrix_drivers_unused_now = sum(drivers$countries_now == 0),
+    inform_drivers_not_in_matrix = nrow(unmatched),
+    label_or_missing_channels = sum(channels$status != "flags")
+  )
+
+  list(channels = channels, drivers = drivers, unmatched = unmatched,
+       summary = summary)
 }
