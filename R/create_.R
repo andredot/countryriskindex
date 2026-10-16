@@ -1213,7 +1213,10 @@ createimg_severity_uplift <- function(db = NULL, top_n = 30) {
   d$country <- factor(d$country, levels = rev(d$country))
 
   ggplot2::ggplot(long, ggplot2::aes(x = .data$value, y = .data$country)) +
-    ggplot2::geom_col(ggplot2::aes(fill = .data$part)) +
+    # reverse = TRUE: the structural part starts at 0 and the crisis uplift is
+    # stacked on top of it, at the end of the bar.
+    ggplot2::geom_col(ggplot2::aes(fill = .data$part),
+                      position = ggplot2::position_stack(reverse = TRUE)) +
     ggplot2::geom_text(
       data = d,
       ggplot2::aes(x = .data$severity_adjusted_risk,
@@ -1225,13 +1228,16 @@ createimg_severity_uplift <- function(db = NULL, top_n = 30) {
     ggplot2::scale_x_continuous(expand = ggplot2::expansion(c(0, 0.1))) +
     ggplot2::labs(
       title = "How much of the score is the crisis modifier?",
-      subtitle = paste0("Top ", nrow(d), " countries by uplift. ",
-                        "Labels: share of the adjusted score\n",
-                        "contributed by the crisis modifier."),
+      subtitle = paste0("Top ", nrow(d), " countries by uplift.\n",
+                        "Grey: structural risk. Red: crisis uplift.\n",
+                        "Labels: % of the score due to the crisis."),
       x = "Severity-adjusted risk", y = NULL, fill = NULL
     ) +
     ggplot2::theme_minimal(base_size = 12) +
-    ggplot2::theme(legend.position = "top")
+    # Colours are named in the subtitle; the title is aligned with the plot
+    # edge rather than the panel, which long country names push to the right.
+    ggplot2::theme(legend.position = "none",
+                   plot.title.position = "plot")
 }
 
 #' Plot the severity calibration table
