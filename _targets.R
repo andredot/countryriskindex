@@ -84,6 +84,8 @@ list(
   tar_target(fig_vul_bar, createimg_vul_bars(risk_score)),
   tar_target(map_cap_score, createmap_cap_score(risk_score)),
   tar_target(map_vul_score, createmap_vul_score(risk_score)),
+  # Hazard, vulnerability and capacity as three adjacent static maps
+  tar_target(fig_component_maps, create_component_maps(risk_score)),
 
   # Risk making
   tar_target(merged_indicators, merge_health_datasets(gbd_rates,
@@ -108,7 +110,10 @@ list(
   tar_target(severity_calibration, severity_calibration_table()),
   tar_target(fig_severity_calibration,
              create_severity_calibration_plot(severity_calibration)),
-  tar_target(fig_severity_uplift, createimg_severity_uplift(risk_score)),
+  # "How much of the score is the crisis modifier?" - readable on its own with
+  # tar_read(crisis_modifier_share) / tar_read(fig_crisis_modifier_share).
+  tar_target(crisis_modifier_share, summarise_crisis_share(risk_score)),
+  tar_target(fig_crisis_modifier_share, createimg_severity_uplift(risk_score)),
   tar_target(severity_effect_table, summarise_severity_effect(risk_score)),
 
   # Data completeness

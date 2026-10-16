@@ -8,7 +8,8 @@ diagnose_component_scales(
   risk_score,
   reference_quantiles = NULL,
   eps = 1e-04,
-  near = 0.05
+  near = 0.05,
+  floor = scale_floor()
 )
 }
 \arguments{
@@ -18,14 +19,19 @@ diagnose_component_scales(
 
 \item{eps}{Floor applied before taking logs, as in \code{\link[=geometric_mean]{geometric_mean()}}.}
 
-\item{near}{Threshold below which a score counts as "near zero".}
+\item{near}{Threshold on the normalised (unfloored) scale below which a
+country counts as "near the lower bound".}
+
+\item{floor}{The floor the scores were computed with.}
 }
 \value{
 A data frame with one row per component.
 }
 \description{
 For each component, reports the normalisation bounds used, how many
-countries sit on or near the bounds, the spread of the score and of its
-logarithm, how much of that log spread comes from near-zero countries, and
-the component's share of the cross-country variance of log structural risk.
+countries sit on or near the bounds of the normalised scale (before the
+floor, see \code{\link[=scale_floor]{scale_floor()}}), the spread of the published score and of its
+logarithm, how much of that log spread comes from countries near the lower
+bound, and the component's share of the cross-country variance of log
+structural risk.
 }

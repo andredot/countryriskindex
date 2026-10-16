@@ -129,6 +129,37 @@ normalise_quantiles <- function(x, q01 = NULL, q99 = NULL) {
   scaled
 }
 
+#' Lower bound of the component scale
+#'
+#' Quantile normalisation maps the reference 1st-percentile country to 0, and a
+#' geometric mean is dominated by values close to 0: a single component at 0
+#' (clamped to `1e-4`, log -9.2) outweighs every other difference between
+#' countries, and the effective weights of the components end up set by the few
+#' countries nearest the lower bound. Every normalised quantity that enters a
+#' geometric mean is therefore mapped onto `[scale_floor(), 1]` instead of
+#' `[0, 1]`, like the minimum goalposts of the Human Development Index. The
+#' order of countries and the relative distances between them are unchanged.
+#'
+#' Set to 0 to reproduce the unfloored v4.10 scale. See
+#' [compare_scoring_variants()] and [floor_sensitivity()] for the effect.
+#'
+#' @return A number in `[0, 1)`.
+#' @export
+scale_floor <- function() 0.1
+
+#' Map a score from `[0, 1]` onto `[floor, 1]`
+#'
+#' @param x Numeric vector in `[0, 1]`.
+#' @param floor Lower bound, see [scale_floor()].
+#' @return A numeric vector in `[floor, 1]`.
+#' @export
+#'
+#' @examples
+#' apply_scale_floor(c(0, 0.5, 1))
+apply_scale_floor <- function(x, floor = scale_floor()) {
+  floor + (1 - floor) * x
+}
+
 #' Compute a frozen reference quantile table
 #'
 #' Computes the 1st and 99th percentiles of the named variables in `df`. The

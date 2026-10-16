@@ -118,25 +118,29 @@ capacity_component_cols <- function() {
 #'   in [vulnerability_component_cols()] order.
 #' @param q01,q99 Frozen normalisation bounds, or `NULL` for run-relative.
 #' @param min_n Minimum non-missing sub-components required.
+#' @param floor Lower bound of the score, see [scale_floor()].
 #'
-#' @return A numeric vector in `[0, 1]`, higher = more vulnerable.
+#' @return A numeric vector in `[floor, 1]`, higher = more vulnerable.
 #' @export
 aggregate_vulnerability <- function(components, q01 = NULL, q99 = NULL,
-                                    min_n = 3) {
+                                    min_n = 3, floor = scale_floor()) {
   components <- as.data.frame(components)
   raw <- row_geometric_mean(components, names(components), min_n = min_n)
-  normalise_quantiles(invert_0_10(raw), q01 = q01, q99 = q99)
+  apply_scale_floor(normalise_quantiles(invert_0_10(raw), q01 = q01, q99 = q99),
+                    floor)
 }
 
 #' Aggregate capacity sub-components into a score
 #'
 #' @inheritParams aggregate_vulnerability
-#' @return A numeric vector in `[0, 1]`, higher = less capacity.
+#' @return A numeric vector in `[floor, 1]`, higher = less capacity.
 #' @export
-aggregate_capacity <- function(components, q01 = NULL, q99 = NULL, min_n = 3) {
+aggregate_capacity <- function(components, q01 = NULL, q99 = NULL, min_n = 3,
+                               floor = scale_floor()) {
   components <- as.data.frame(components)
   raw <- row_geometric_mean(components, names(components), min_n = min_n)
-  normalise_quantiles(invert_0_100(raw), q01 = q01, q99 = q99)
+  apply_scale_floor(normalise_quantiles(invert_0_100(raw), q01 = q01,
+                                        q99 = q99), floor)
 }
 
 #' Compute Hazard Score from GBD Rates
@@ -154,12 +158,14 @@ aggregate_capacity <- function(components, q01 = NULL, q99 = NULL, min_n = 3) {
 #'   [compute_reference_quantiles()].
 #' @param method Either `"quantile"` (default) or `"max"` (deprecated v4.0
 #'   behaviour, retained for comparison only).
+#' @param floor Lower bound of the score, see [scale_floor()].
 #'
 #' @return The input data frame with added columns \code{hazard_raw} and
 #'   \code{hazard_score}.
 #' @export
 add_hazard_score <- function(df, reference = NULL,
-                             method = c("quantile", "max")) {
+                             method = c("quantile", "max"),
+                             floor = scale_floor()) {
   method <- match.arg(method)
   df$hazard_raw <- df[["All causes"]]
 
@@ -174,9 +180,10 @@ add_hazard_score <- function(df, reference = NULL,
   }
 
   bounds <- get_reference_bounds(reference, "hazard_raw")
-  df$hazard_score <- normalise_quantiles(df$hazard_raw,
-                                         q01 = bounds$q01,
-                                         q99 = bounds$q99)
+  df$hazard_score <- apply_scale_floor(
+    normalise_quantiles(df$hazard_raw, q01 = bounds$q01, q99 = bounds$q99),
+    floor
+  )
   df
 }
 
@@ -227,9 +234,12 @@ add_capacity_score <- function(df, reference = NULL, min_n = 3) {
   # components. log1p first: the raw distribution is heavily right-skewed.
   res_bounds <- get_reference_bounds(reference, "resources_raw")
   df$resources_raw <- log1p(df$doctor_density)
-  df$resources <- 100 * normalise_quantiles(df$resources_raw,
-                                            q01 = res_bounds$q01,
-                                            q99 = res_bounds$q99)
+  # Floored like the component scores: a country at the lowest density would
+  # otherwise enter the capacity geometric mean at 0 and collapse it.
+  df$resources <- 100 * apply_scale_floor(
+    normalise_quantiles(df$resources_raw, q01 = res_bounds$q01,
+                        q99 = res_bounds$q99)
+  )
 
   df$services <- df$haqi
 

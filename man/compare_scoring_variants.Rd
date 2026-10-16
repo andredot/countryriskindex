@@ -4,14 +4,19 @@
 \alias{compare_scoring_variants}
 \title{Compare alternative scale and aggregation choices}
 \usage{
-compare_scoring_variants(risk_score, floor = 0.1, eps = 1e-04, top_n = 20)
+compare_scoring_variants(
+  risk_score,
+  published_floor = scale_floor(),
+  eps = 1e-04,
+  top_n = 20
+)
 }
 \arguments{
 \item{risk_score}{A scored data frame.}
 
-\item{floor}{Lower bound used by the \code{floored} variant.}
+\item{published_floor}{The floor the published scores were computed with.}
 
-\item{eps}{Floor applied before taking logs in the \code{current} variant.}
+\item{eps}{Floor applied before taking logs in the \verb{no floor} variant.}
 
 \item{top_n}{Size of the high-risk group used for the overlap statistic.}
 }
@@ -19,29 +24,29 @@ compare_scoring_variants(risk_score, floor = 0.1, eps = 1e-04, top_n = 20)
 A list with \code{scores} (one row per country, the overall score and
 rank under each variant), \code{weights} (variant x component variance shares
 and standardised betas), \code{summary} (per variant: Spearman correlation and
-rank changes against \code{current}, overlap of the top \code{top_n}) and \code{n}.
+rank changes against \code{published}, overlap of the top \code{top_n}) and \code{n}.
 }
 \description{
 Recomputes the structural score under alternatives that keep the three
-pillars but change how they are put on a common scale or combined:
+pillars but change how they are put on a common scale or combined, starting
+from the normalised component scores (the floor removed):
 \describe{
-\item{current}{Quantile-normalised components in \verb{[0, 1]}, geometric mean
-(zeros clamped to \code{1e-4}). The published method.}
-\item{floored}{The same components mapped onto \verb{[floor, 1]} before the
-geometric mean, like the minimum "goalposts" of the Human Development
-Index: the worst-to-best ordering and the distances are unchanged, but
-no component can be 0, so no single near-zero value dominates.}
+\item{published}{Components on \verb{[published_floor, 1]}, geometric mean:
+the method used for the published scores (see \code{\link[=scale_floor]{scale_floor()}}).}
+\item{no floor}{Components on \verb{[0, 1]}, zeros clamped to \code{1e-4},
+geometric mean: the v4.10 method, where the few countries nearest the
+lower bound dominate.}
 \item{percentile}{Each component replaced by its percentile rank among
 countries (from the risk-oriented raw value), then geometric mean.
-Every component then has the same distribution, so effective weights
-are close to nominal by construction, at the cost of discarding the size
-of the gaps between countries.}
-\item{arithmetic}{Arithmetic mean of the current components: fully
+Every component has the same distribution, so effective weights are
+close to nominal by construction, at the cost of discarding the size of
+the gaps between countries.}
+\item{arithmetic}{Arithmetic mean of the normalised components: fully
 compensatory, no log-space magnification.}
 }
 }
 \details{
 Effective weights are computed in each variant's own aggregation space (log
 for geometric means, linear for the arithmetic mean) with
-\code{\link[=variance_shares]{variance_shares()}}.
+\code{\link[=variance_shares]{variance_shares()}}. Rank agreement is measured against \code{published}.
 }

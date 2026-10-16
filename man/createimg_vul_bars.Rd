@@ -4,10 +4,12 @@
 \alias{createimg_vul_bars}
 \title{Vulnerability plot}
 \usage{
-createimg_vul_bars(risk_score = NULL)
+createimg_vul_bars(risk_score = NULL, top_n = 10)
 }
 \arguments{
 \item{risk_score}{Data with vulnerability values}
+
+\item{top_n}{Number of highest-scoring countries shown.}
 }
 \value{
 A ggplot object

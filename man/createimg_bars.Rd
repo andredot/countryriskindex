@@ -11,7 +11,8 @@ createimg_bars(
   color_var,
   x_label,
   y_label,
-  linerange = NULL
+  linerange = NULL,
+  top_n = NULL
 )
 }
 \arguments{
@@ -29,6 +30,9 @@ createimg_bars(
 
 \item{linerange}{Optional list with \code{xmin} and \code{xmax} as symbols for
 linerange plotting.}
+
+\item{top_n}{Optional number of rows to keep, those with the highest
+\code{x_var}. \code{NULL} keeps all.}
 }
 \value{
 A \code{ggplot} object representing the horizontal bar/point plot.

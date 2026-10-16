@@ -4,7 +4,12 @@
 \alias{add_hazard_score}
 \title{Compute Hazard Score from GBD Rates}
 \usage{
-add_hazard_score(df, reference = NULL, method = c("quantile", "max"))
+add_hazard_score(
+  df,
+  reference = NULL,
+  method = c("quantile", "max"),
+  floor = scale_floor()
+)
 }
 \arguments{
 \item{df}{A data frame containing a column named \code{"All causes"}.}
@@ -14,6 +19,8 @@ add_hazard_score(df, reference = NULL, method = c("quantile", "max"))
 
 \item{method}{Either \code{"quantile"} (default) or \code{"max"} (deprecated v4.0
 behaviour, retained for comparison only).}
+
+\item{floor}{Lower bound of the score, see \code{\link[=scale_floor]{scale_floor()}}.}
 }
 \value{
 The input data frame with added columns \code{hazard_raw} and

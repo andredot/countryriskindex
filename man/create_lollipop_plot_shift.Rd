@@ -8,7 +8,8 @@ create_lollipop_plot_shift(
   risk_score,
   sort_by_difference = FALSE,
   color_x = "lightblue",
-  color_y = "deepskyblue"
+  color_y = "deepskyblue",
+  top_n = 10
 )
 }
 \arguments{
@@ -20,6 +21,9 @@ and severity_adjusted_risk.}
 \item{color_x}{Color for overall_risk points.}
 
 \item{color_y}{Color for severity-adjusted risk points.}
+
+\item{top_n}{Number of countries with the highest severity-adjusted risk
+to show. \code{NULL} shows all.}
 }
 \value{
 A ggplot2 lollipop plot.

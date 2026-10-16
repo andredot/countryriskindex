@@ -4,10 +4,12 @@
 \alias{createimg_cap_bars}
 \title{Lack of Coping Capacity plot}
 \usage{
-createimg_cap_bars(risk_score = NULL)
+createimg_cap_bars(risk_score = NULL, top_n = 10)
 }
 \arguments{
 \item{risk_score}{Data with capacity values}
+
+\item{top_n}{Number of highest-scoring countries shown.}
 }
 \value{
 A ggplot object

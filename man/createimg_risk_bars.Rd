@@ -4,10 +4,12 @@
 \alias{createimg_risk_bars}
 \title{Risk Score plot}
 \usage{
-createimg_risk_bars(risk_score = NULL)
+createimg_risk_bars(risk_score = NULL, top_n = 10)
 }
 \arguments{
 \item{risk_score}{Data with risk values}
+
+\item{top_n}{Number of highest-scoring countries shown.}
 }
 \value{
 A ggplot object

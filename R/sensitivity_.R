@@ -23,21 +23,26 @@
 #' Diagnose the scale of each risk component
 #'
 #' For each component, reports the normalisation bounds used, how many
-#' countries sit on or near the bounds, the spread of the score and of its
-#' logarithm, how much of that log spread comes from near-zero countries, and
-#' the component's share of the cross-country variance of log structural risk.
+#' countries sit on or near the bounds of the normalised scale (before the
+#' floor, see [scale_floor()]), the spread of the published score and of its
+#' logarithm, how much of that log spread comes from countries near the lower
+#' bound, and the component's share of the cross-country variance of log
+#' structural risk.
 #'
 #' @param risk_score A scored data frame (output of [score_risk()]).
 #' @param reference_quantiles Frozen normalisation table, or `NULL`.
 #' @param eps Floor applied before taking logs, as in [geometric_mean()].
-#' @param near Threshold below which a score counts as "near zero".
+#' @param near Threshold on the normalised (unfloored) scale below which a
+#'   country counts as "near the lower bound".
+#' @param floor The floor the scores were computed with.
 #'
 #' @return A data frame with one row per component.
 #' @export
 diagnose_component_scales <- function(risk_score,
                                       reference_quantiles = NULL,
                                       eps = 1e-4,
-                                      near = 0.05) {
+                                      near = 0.05,
+                                      floor = scale_floor()) {
   comps <- risk_components()
   scores <- as.data.frame(risk_score)[, paste0(comps, "_score"), drop = FALSE]
   complete <- stats::complete.cases(scores)
@@ -55,6 +60,7 @@ diagnose_component_scales <- function(risk_score,
                 q99 = unname(stats::quantile(raw, 0.99, na.rm = TRUE)))
     }
     ok <- is.finite(x)
+    x0 <- unfloor(x[ok], floor)
     lx <- log(pmax(x[ok], eps))
     dev2 <- (lx - mean(lx))^2
     data.frame(
@@ -63,18 +69,24 @@ diagnose_component_scales <- function(risk_score,
       bounds = source,
       q01 = b$q01 %||% NA_real_,
       q99 = b$q99 %||% NA_real_,
-      at_zero = sum(x[ok] <= 0),
-      near_zero = sum(x[ok] < near),
-      at_one = sum(x[ok] >= 1),
+      at_lower_bound = sum(x0 <= 0),
+      near_lower_bound = sum(x0 < near),
+      at_upper_bound = sum(x0 >= 1),
       median = stats::median(x[ok]),
       sd_score = stats::sd(x[ok]),
       sd_log = stats::sd(lx),
-      log_var_from_near_zero = sum(dev2[x[ok] < near]) / sum(dev2),
+      log_var_from_near_lower = sum(dev2[x0 < near]) / sum(dev2),
       variance_share = unname(shares[paste0(comp, "_score")]),
       stringsAsFactors = FALSE
     )
   })
   do.call(rbind, rows)
+}
+
+#' Undo the scale floor
+#' @noRd
+unfloor <- function(x, floor = scale_floor()) {
+  pmin(pmax((x - floor) / (1 - floor), 0), 1)
 }
 
 #' Diagnose the sub-components inside each pillar
@@ -138,66 +150,52 @@ diagnose_pillar_internals <- function(risk_score) {
 #' Compare alternative scale and aggregation choices
 #'
 #' Recomputes the structural score under alternatives that keep the three
-#' pillars but change how they are put on a common scale or combined:
+#' pillars but change how they are put on a common scale or combined, starting
+#' from the normalised component scores (the floor removed):
 #' \describe{
-#'   \item{current}{Quantile-normalised components in `[0, 1]`, geometric mean
-#'     (zeros clamped to `1e-4`). The published method.}
-#'   \item{floored}{The same components mapped onto `[floor, 1]` before the
-#'     geometric mean, like the minimum "goalposts" of the Human Development
-#'     Index: the worst-to-best ordering and the distances are unchanged, but
-#'     no component can be 0, so no single near-zero value dominates.}
+#'   \item{published}{Components on `[published_floor, 1]`, geometric mean:
+#'     the method used for the published scores (see [scale_floor()]).}
+#'   \item{no floor}{Components on `[0, 1]`, zeros clamped to `1e-4`,
+#'     geometric mean: the v4.10 method, where the few countries nearest the
+#'     lower bound dominate.}
 #'   \item{percentile}{Each component replaced by its percentile rank among
 #'     countries (from the risk-oriented raw value), then geometric mean.
-#'     Every component then has the same distribution, so effective weights
-#'     are close to nominal by construction, at the cost of discarding the size
-#'     of the gaps between countries.}
-#'   \item{arithmetic}{Arithmetic mean of the current components: fully
+#'     Every component has the same distribution, so effective weights are
+#'     close to nominal by construction, at the cost of discarding the size of
+#'     the gaps between countries.}
+#'   \item{arithmetic}{Arithmetic mean of the normalised components: fully
 #'     compensatory, no log-space magnification.}
 #' }
 #'
 #' Effective weights are computed in each variant's own aggregation space (log
 #' for geometric means, linear for the arithmetic mean) with
-#' [variance_shares()].
+#' [variance_shares()]. Rank agreement is measured against `published`.
 #'
 #' @param risk_score A scored data frame.
-#' @param floor Lower bound used by the `floored` variant.
-#' @param eps Floor applied before taking logs in the `current` variant.
+#' @param published_floor The floor the published scores were computed with.
+#' @param eps Floor applied before taking logs in the `no floor` variant.
 #' @param top_n Size of the high-risk group used for the overlap statistic.
 #'
 #' @return A list with `scores` (one row per country, the overall score and
 #'   rank under each variant), `weights` (variant x component variance shares
 #'   and standardised betas), `summary` (per variant: Spearman correlation and
-#'   rank changes against `current`, overlap of the top `top_n`) and `n`.
+#'   rank changes against `published`, overlap of the top `top_n`) and `n`.
 #' @export
-compare_scoring_variants <- function(risk_score, floor = 0.1, eps = 1e-4,
-                                     top_n = 20) {
-  comps <- risk_components()
-  d <- as.data.frame(risk_score)
-  x <- as.matrix(d[, paste0(comps, "_score"), drop = FALSE])
-  keep <- stats::complete.cases(x)
-  d <- d[keep, , drop = FALSE]
-  x <- x[keep, , drop = FALSE]
-  colnames(x) <- comps
-
-  raw_cols <- paste0(comps, "_raw")
-  raw <- if (all(raw_cols %in% names(d))) {
-    as.matrix(d[, raw_cols])
-  } else {
-    x
-  }
-  pct <- apply(raw, 2, function(v) rank(v, ties.method = "average",
-                                        na.last = "keep") / (sum(!is.na(v)) + 1))
-  pct[is.na(pct)] <- 0.5
-  colnames(pct) <- comps
+compare_scoring_variants <- function(risk_score,
+                                     published_floor = scale_floor(),
+                                     eps = 1e-4, top_n = 20) {
+  prep <- variant_inputs(risk_score, published_floor)
+  x0 <- prep$x0
 
   variants <- list(
-    current = list(terms = log(pmax(x, eps)) / 3, geometric = TRUE),
-    floored = list(terms = log(floor + (1 - floor) * x) / 3, geometric = TRUE),
-    percentile = list(terms = log(pct) / 3, geometric = TRUE),
-    arithmetic = list(terms = x / 3, geometric = FALSE)
+    published = list(terms = log(apply_scale_floor(x0, published_floor)) / 3,
+                     geometric = TRUE),
+    `no floor` = list(terms = log(pmax(x0, eps)) / 3, geometric = TRUE),
+    percentile = list(terms = log(prep$pct) / 3, geometric = TRUE),
+    arithmetic = list(terms = x0 / 3, geometric = FALSE)
   )
 
-  scores <- data.frame(ISO_A3 = d$ISO_A3, country = d$country,
+  scores <- data.frame(ISO_A3 = prep$d$ISO_A3, country = prep$d$country,
                        stringsAsFactors = FALSE)
   weights <- list()
   for (v in names(variants)) {
@@ -206,30 +204,52 @@ compare_scoring_variants <- function(risk_score, floor = 0.1, eps = 1e-4,
     scores[[v]] <- if (variants[[v]]$geometric) exp(total) else total
     scores[[paste0("rank_", v)]] <- rank(-scores[[v]], ties.method = "min")
     vs <- variance_shares(tm)
-    weights[[v]] <- data.frame(variant = v, component = comps,
+    weights[[v]] <- data.frame(variant = v, component = colnames(tm),
                                variance_share = unname(vs$variance_share),
                                std_beta = unname(vs$std_beta),
                                stringsAsFactors = FALSE)
   }
   weights <- do.call(rbind, weights)
 
-  top_current <- scores$ISO_A3[scores$rank_current <= top_n]
+  top_ref <- scores$ISO_A3[scores$rank_published <= top_n]
   summary <- do.call(rbind, lapply(names(variants), function(v) {
-    shift <- abs(scores[[paste0("rank_", v)]] - scores$rank_current)
+    shift <- abs(scores[[paste0("rank_", v)]] - scores$rank_published)
     top_v <- scores$ISO_A3[scores[[paste0("rank_", v)]] <= top_n]
     data.frame(
       variant = v,
-      spearman_vs_current = stats::cor(scores[[v]], scores$current,
-                                       method = "spearman"),
+      spearman_vs_published = stats::cor(scores[[v]], scores$published,
+                                         method = "spearman"),
       median_rank_change = stats::median(shift),
       max_rank_change = max(shift),
-      top_overlap = length(intersect(top_current, top_v)) / top_n,
+      top_overlap = length(intersect(top_ref, top_v)) / top_n,
       stringsAsFactors = FALSE
     )
   }))
 
   list(scores = scores, weights = weights, summary = summary,
-       n = nrow(scores), top_n = top_n, floor = floor)
+       n = nrow(scores), top_n = top_n, floor = published_floor)
+}
+
+#' Complete-case normalised components and percentile ranks
+#' @noRd
+variant_inputs <- function(risk_score, published_floor = scale_floor()) {
+  comps <- risk_components()
+  d <- as.data.frame(risk_score)
+  x <- as.matrix(d[, paste0(comps, "_score"), drop = FALSE])
+  keep <- stats::complete.cases(x)
+  d <- d[keep, , drop = FALSE]
+  x0 <- unfloor(x[keep, , drop = FALSE], published_floor)
+  colnames(x0) <- comps
+
+  raw_cols <- paste0(comps, "_raw")
+  raw <- if (all(raw_cols %in% names(d))) as.matrix(d[, raw_cols]) else x0
+  pct <- apply(raw, 2, function(v) {
+    rank(v, ties.method = "average", na.last = "keep") / (sum(!is.na(v)) + 1)
+  })
+  pct[is.na(pct)] <- 0.5
+  colnames(pct) <- comps
+
+  list(d = d, x0 = x0, pct = pct)
 }
 
 #' Plot effective weights under each scoring variant
@@ -274,24 +294,30 @@ create_variant_weights_plot <- function(comparison) {
 
 #' Effective weights as a function of the scale floor
 #'
-#' Repeats the `floored` variant of [compare_scoring_variants()] for several
-#' floors. The current method is the limit `floor -> 0` (with zeros clamped to
-#' `1e-4`), so a strong dependence of the weights on the floor shows that they
-#' are driven by the few countries closest to zero rather than by the bulk of
-#' the distribution.
+#' Recomputes the structural score with the normalised components mapped onto
+#' `[floor, 1]` for several floors. A floor of 0 is the unfloored v4.10 scale
+#' (zeros clamped to `1e-4`). A strong dependence of the weights on the floor
+#' shows that they are driven by the few countries closest to the lower bound
+#' rather than by the bulk of the distribution.
 #'
 #' @param risk_score A scored data frame.
 #' @param floors Numeric vector of floors in `[0, 1)`.
+#' @param published_floor The floor the published scores were computed with.
+#' @param eps Clamp applied before taking logs when `floor = 0`.
 #' @return A data frame with one row per floor and one column of variance
 #'   share per component.
 #' @export
-floor_sensitivity <- function(risk_score, floors = c(0.01, 0.05, 0.1, 0.2)) {
-  comps <- risk_components()
+floor_sensitivity <- function(risk_score,
+                              floors = c(0, 0.05, 0.1, 0.2),
+                              published_floor = scale_floor(),
+                              eps = 1e-4) {
+  x0 <- variant_inputs(risk_score, published_floor)$x0
   rows <- lapply(floors, function(f) {
-    w <- compare_scoring_variants(risk_score, floor = f)$weights
-    w <- w[w$variant == "floored", , drop = FALSE]
-    out <- data.frame(floor = f)
-    for (k in comps) out[[k]] <- w$variance_share[w$component == k]
+    tm <- log(pmax(apply_scale_floor(x0, f), eps)) / 3
+    vs <- variance_shares(tm)$variance_share
+    out <- data.frame(floor = f, published = isTRUE(all.equal(f,
+                                                              published_floor)))
+    for (k in risk_components()) out[[k]] <- unname(vs[k])
     out
   })
   do.call(rbind, rows)

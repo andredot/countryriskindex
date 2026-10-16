@@ -4,10 +4,12 @@
 \alias{createimg_daly_bars}
 \title{DALY Rate plot}
 \usage{
-createimg_daly_bars(gbd_rates = NULL)
+createimg_daly_bars(gbd_rates = NULL, top_n = 10)
 }
 \arguments{
 \item{gbd_rates}{Data with DALY values}
+
+\item{top_n}{Number of highest-scoring countries shown.}
 }
 \value{
 A ggplot object

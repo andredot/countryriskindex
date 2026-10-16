@@ -298,6 +298,61 @@ createmap_severity_score<- function(db = NULL) {
   )
 }
 
+#' Static maps of the three components, side by side
+#'
+#' Draws hazard, vulnerability and lack of coping capacity as three adjacent
+#' choropleths on a shared colour scale, so that the components can be compared
+#' at a glance in a printed or static report. No tiles or network access are
+#' needed: countries come from Natural Earth.
+#'
+#' @param risk_score A scored data frame with `ISO_A3` and the three
+#'   `<component>_score` columns.
+#' @param labels Named character vector of panel titles, names being the
+#'   components.
+#' @param projection Coordinate reference system passed to
+#'   [sf::st_transform()]; Equal Earth by default, which keeps country areas
+#'   comparable.
+#'
+#' @return A ggplot2 object.
+#' @export
+create_component_maps <- function(risk_score,
+                                  labels = c(hazard = "Hazard",
+                                             vulnerability = "Vulnerability",
+                                             capacity = "Lack of coping capacity"),
+                                  projection = "+proj=eqearth") {
+  world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+  world <- world[world$adm0_a3 != "ATA", "adm0_a3"]
+  world <- sf::st_transform(world, projection)
+
+  panels <- lapply(names(labels), function(comp) {
+    col <- paste0(comp, "_score")
+    w <- world
+    w$value <- risk_score[[col]][match(w$adm0_a3, risk_score$ISO_A3)]
+    w$component <- labels[[comp]]
+    w
+  })
+  long <- do.call(rbind, panels)
+  long$component <- factor(long$component, levels = unname(labels))
+
+  ggplot2::ggplot(long) +
+    ggplot2::geom_sf(ggplot2::aes(fill = .data$value), colour = "white",
+                     linewidth = 0.05) +
+    ggplot2::facet_wrap(~component, nrow = 1) +
+    ggplot2::scale_fill_distiller(palette = "YlOrRd", direction = 1,
+                                  limits = c(0, 1), na.value = "grey85",
+                                  name = "Score") +
+    ggplot2::guides(fill = ggplot2::guide_colourbar(title.position = "top",
+                                                    title.hjust = 0.5)) +
+    ggplot2::theme_void(base_size = 12) +
+    ggplot2::theme(
+      legend.position = "bottom",
+      legend.key.width = grid::unit(2.5, "cm"),
+      legend.key.height = grid::unit(0.3, "cm"),
+      strip.text = ggplot2::element_text(face = "bold", size = 12,
+                                         margin = ggplot2::margin(b = 4))
+    )
+}
+
 ## FIGURES
 
 #' Create a Flexible Horizontal Bar and Point Plot
@@ -315,6 +370,8 @@ createmap_severity_score<- function(db = NULL) {
 #' @param y_label Label for the y-axis.
 #' @param linerange Optional list with `xmin` and `xmax` as symbols for
 #' linerange plotting.
+#' @param top_n Optional number of rows to keep, those with the highest
+#'   `x_var`. `NULL` keeps all.
 #'
 #' @return A `ggplot` object representing the horizontal bar/point plot.
 #' @export
@@ -324,7 +381,12 @@ createimg_bars <- function(data,
                            color_var,
                            x_label,
                            y_label,
-                           linerange = NULL) {
+                           linerange = NULL,
+                           top_n = NULL) {
+  if (!is.null(top_n)) {
+    data <- data[!is.na(dplyr::pull(data, {{ x_var }})), , drop = FALSE]
+    data <- dplyr::slice_max(data, {{ x_var }}, n = top_n, with_ties = FALSE)
+  }
   p <- ggplot2::ggplot(data, ggplot2::aes(y = reorder({{ y_var }}, {{ x_var }}),
                                           color = {{ color_var }}))
 
@@ -347,25 +409,28 @@ createimg_bars <- function(data,
 #' DALY Rate plot
 #'
 #' @param gbd_rates Data with DALY values
+#' @param top_n Number of highest-scoring countries shown.
 #' @return A ggplot object
 #' @export
-createimg_daly_bars <- function(gbd_rates = NULL) {
+createimg_daly_bars <- function(gbd_rates = NULL, top_n = 10) {
   createimg_bars(
     data = gbd_rates,
     x_var =  `All causes`,
     y_var = location_name,
     color_var = "All causes",
     x_label = "DALY per 1000 people per year",
-    y_label = "Country"
+    y_label = "Country",
+    top_n = top_n
   )
 }
 
 #' Lack of Coping Capacity plot
 #'
 #' @param risk_score Data with capacity values
+#' @param top_n Number of highest-scoring countries shown.
 #' @return A ggplot object
 #' @export
-createimg_cap_bars <- function(risk_score = NULL) {
+createimg_cap_bars <- function(risk_score = NULL, top_n = 10) {
   createimg_bars(
     data = risk_score,
     x_var = capacity_score,
@@ -374,39 +439,44 @@ createimg_cap_bars <- function(risk_score = NULL) {
     # aggregate, a different quantity from the score being plotted.
     color_var = capacity_score,
     x_label = "Lack of Capacity score",
-    y_label = "Country"
+    y_label = "Country",
+    top_n = top_n
   )
 }
 
 #' Vulnerability plot
 #'
 #' @param risk_score Data with vulnerability values
+#' @param top_n Number of highest-scoring countries shown.
 #' @return A ggplot object
 #' @export
-createimg_vul_bars <- function(risk_score = NULL) {
+createimg_vul_bars <- function(risk_score = NULL, top_n = 10) {
   createimg_bars(
     data = risk_score,
     x_var = vulnerability_score,
     y_var = country,
     color_var = vulnerability_score,
     x_label = "Vulnerability score",
-    y_label = "Country"
+    y_label = "Country",
+    top_n = top_n
   )
 }
 
 #' Risk Score plot
 #'
 #' @param risk_score Data with risk values
+#' @param top_n Number of highest-scoring countries shown.
 #' @return A ggplot object
 #' @export
-createimg_risk_bars <- function(risk_score = NULL) {
+createimg_risk_bars <- function(risk_score = NULL, top_n = 10) {
   createimg_bars(
     data = risk_score,
     x_var = overall_risk,
     y_var = country,
     color_var = overall_risk,
     x_label = "Health Risk Score",
-    y_label = "Country"
+    y_label = "Country",
+    top_n = top_n
   )
 }
 
@@ -537,15 +607,23 @@ create_lollipop <- function(df, country_col, x_col, y_col, title,
 #' @param sort_by_difference Logical. Whether to sort by difference.
 #' @param color_x Color for overall_risk points.
 #' @param color_y Color for severity-adjusted risk points.
+#' @param top_n Number of countries with the highest severity-adjusted risk
+#'   to show. `NULL` shows all.
 #'
 #' @return A ggplot2 lollipop plot.
 #' @export
 create_lollipop_plot_shift <- function(risk_score,
                                   sort_by_difference = FALSE,
                                   color_x = "lightblue",
-                                  color_y = "deepskyblue") {
+                                  color_y = "deepskyblue",
+                                  top_n = 10) {
   df <- dplyr::select(risk_score, ISO_A3, country,
                       overall_risk, severity_adjusted_risk)
+  if (!is.null(top_n)) {
+    df <- df[!is.na(df$severity_adjusted_risk), , drop = FALSE]
+    df <- dplyr::slice_max(df, severity_adjusted_risk, n = top_n,
+                           with_ties = FALSE)
+  }
 
   create_lollipop(df,
                   country_col = "country",
@@ -1045,11 +1123,65 @@ createmap_completeness <- function(db = NULL) {
   )
 }
 
+#' How much of each country's score is the crisis modifier?
+#'
+#' One row per country with a crisis uplift: the structural and the
+#' severity-adjusted score, the uplift in points and as a share of the
+#' published score, and the uplift split by the component it acts through.
+#' The split allocates the uplift in proportion to the exact log-scale
+#' contributions from [decompose_severity()], so the three parts sum to the
+#' uplift.
+#'
+#' @param db A data frame produced by [add_severity()].
+#'
+#' @return A data frame sorted by descending uplift, with columns `country`,
+#'   `ISO_A3`, `severity_index`, `overall_risk`, `severity_adjusted_risk`,
+#'   `severity_uplift`, `crisis_share` and `uplift_via_<component>`, plus
+#'   `CRISIS` when available.
+#' @export
+summarise_crisis_share <- function(db) {
+  d <- as.data.frame(db)
+  d <- d[is.finite(d$overall_risk) & is.finite(d$severity_adjusted_risk), ,
+         drop = FALSE]
+
+  keep <- intersect(c("country", "ISO_A3", "CRISIS", "severity_index",
+                      "overall_risk", "severity_adjusted_risk",
+                      "severity_uplift"), names(d))
+  out <- d[, keep, drop = FALSE]
+  if (!"severity_uplift" %in% names(out)) {
+    out$severity_uplift <- out$severity_adjusted_risk - out$overall_risk
+  }
+  out$crisis_share <- out$severity_uplift / out$severity_adjusted_risk
+
+  sev <- decompose_severity(d)
+  for (comp in risk_components()) {
+    out[[paste0("uplift_via_", comp)]] <- 0
+  }
+  if (!is.null(sev) && nrow(sev) > 0) {
+    total <- tapply(sev$contribution, sev$ISO_A3, sum)
+    for (comp in unique(sev$component)) {
+      part <- sev[sev$component == comp, , drop = FALSE]
+      frac <- part$contribution / total[part$ISO_A3]
+      frac[!is.finite(frac)] <- 0
+      idx <- match(part$ISO_A3, out$ISO_A3)
+      ok <- !is.na(idx)
+      out[[paste0("uplift_via_", comp)]][idx[ok]] <-
+        out$severity_uplift[idx[ok]] * frac[ok]
+    }
+  }
+
+  out <- out[out$severity_uplift > 0, , drop = FALSE]
+  out <- out[order(-out$severity_uplift), , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
+
 #' Bar Chart of the Severity Adjustment by Country
 #'
 #' Shows, for the most-affected countries, the unadjusted risk and the uplift
 #' contributed by the crisis modifier, so the size of the adjustment is legible
-#' rather than buried inside the headline score.
+#' rather than buried inside the headline score. Each bar is labelled with the
+#' share of the published score that comes from the crisis modifier.
 #'
 #' @param db A data frame produced by `add_severity()`.
 #' @param top_n Number of countries to display.
@@ -1057,9 +1189,7 @@ createmap_completeness <- function(db = NULL) {
 #' @return A ggplot2 object.
 #' @export
 createimg_severity_uplift <- function(db = NULL, top_n = 30) {
-  d <- db[!is.na(db$severity_uplift) & db$severity_uplift > 0, , drop = FALSE]
-  d <- d[order(-d$severity_uplift), , drop = FALSE]
-  d <- utils::head(d, top_n)
+  d <- utils::head(summarise_crisis_share(db), top_n)
 
   if (nrow(d) == 0) {
     return(
@@ -1080,17 +1210,24 @@ createimg_severity_uplift <- function(db = NULL, top_n = 30) {
                       levels = c("overall_risk", "severity_uplift"),
                       labels = c("Structural risk", "Crisis uplift"))
   long$country <- factor(long$country, levels = rev(d$country))
+  d$country <- factor(d$country, levels = rev(d$country))
 
-  ggplot2::ggplot(long, ggplot2::aes(x = .data$value, y = .data$country,
-                                     fill = .data$part)) +
-    ggplot2::geom_col() +
+  ggplot2::ggplot(long, ggplot2::aes(x = .data$value, y = .data$country)) +
+    ggplot2::geom_col(ggplot2::aes(fill = .data$part)) +
+    ggplot2::geom_text(
+      data = d,
+      ggplot2::aes(x = .data$severity_adjusted_risk,
+                   label = scales::percent(.data$crisis_share, accuracy = 1)),
+      hjust = -0.15, size = 3.3, colour = "grey20") +
     ggplot2::scale_fill_manual(
       values = c("Structural risk" = "grey60", "Crisis uplift" = "firebrick")
     ) +
+    ggplot2::scale_x_continuous(expand = ggplot2::expansion(c(0, 0.1))) +
     ggplot2::labs(
       title = "How much of the score is the crisis modifier?",
-      subtitle = paste0("Top ", nrow(d),
-                        " countries by severity uplift"),
+      subtitle = paste0("Top ", nrow(d), " countries by uplift. ",
+                        "Labels: share of the adjusted score\n",
+                        "contributed by the crisis modifier."),
       x = "Severity-adjusted risk", y = NULL, fill = NULL
     ) +
     ggplot2::theme_minimal(base_size = 12) +

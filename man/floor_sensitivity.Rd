@@ -4,21 +4,30 @@
 \alias{floor_sensitivity}
 \title{Effective weights as a function of the scale floor}
 \usage{
-floor_sensitivity(risk_score, floors = c(0.01, 0.05, 0.1, 0.2))
+floor_sensitivity(
+  risk_score,
+  floors = c(0, 0.05, 0.1, 0.2),
+  published_floor = scale_floor(),
+  eps = 1e-04
+)
 }
 \arguments{
 \item{risk_score}{A scored data frame.}
 
 \item{floors}{Numeric vector of floors in \verb{[0, 1)}.}
+
+\item{published_floor}{The floor the published scores were computed with.}
+
+\item{eps}{Clamp applied before taking logs when \code{floor = 0}.}
 }
 \value{
 A data frame with one row per floor and one column of variance
 share per component.
 }
 \description{
-Repeats the \code{floored} variant of \code{\link[=compare_scoring_variants]{compare_scoring_variants()}} for several
-floors. The current method is the limit \code{floor -> 0} (with zeros clamped to
-\code{1e-4}), so a strong dependence of the weights on the floor shows that they
-are driven by the few countries closest to zero rather than by the bulk of
-the distribution.
+Recomputes the structural score with the normalised components mapped onto
+\verb{[floor, 1]} for several floors. A floor of 0 is the unfloored v4.10 scale
+(zeros clamped to \code{1e-4}). A strong dependence of the weights on the floor
+shows that they are driven by the few countries closest to the lower bound
+rather than by the bulk of the distribution.
 }

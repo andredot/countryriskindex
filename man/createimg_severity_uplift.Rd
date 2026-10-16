@@ -17,5 +17,6 @@ A ggplot2 object.
 \description{
 Shows, for the most-affected countries, the unadjusted risk and the uplift
 contributed by the crisis modifier, so the size of the adjustment is legible
-rather than buried inside the headline score.
+rather than buried inside the headline score. Each bar is labelled with the
+share of the published score that comes from the crisis modifier.
 }

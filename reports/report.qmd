@@ -157,17 +157,18 @@ Capacity is defined as the system's ability to govern, raise resources, finance 
 
 Doctor density is the one raw rate in the index. It spans roughly 0.1 to 85 per 10,000, and before version 4.10 it entered the geometric mean unscaled, carrying several times the combined influence of the other three functions. It is now log-transformed (the distribution is heavily right-skewed) and put on the same 0-100 scale.
 
-### Normalisation: frozen quantile bounds
+### Normalisation: frozen quantile bounds and a scale floor
 
-Each component is scaled to 0-1 between the 1st and 99th percentile of a **reference distribution fixed in 2025**, with values beyond the bounds clipped:
+Each component is scaled between the 1st and 99th percentile of a **reference distribution fixed in 2025**, with values beyond the bounds clipped, and then mapped onto $[f, 1]$ with a floor $f = 0.1$:
 
 $$
-x^{*} = \min\!\Big(1, \max\!\Big(0, \frac{x - q_{01}}{q_{99} - q_{01}}\Big)\Big)
+x^{*} = f + (1 - f)\,\min\!\Big(1, \max\!\Big(0, \frac{x - q_{01}}{q_{99} - q_{01}}\Big)\Big)
 $$
 
 - **Quantiles, not min/max.** Hazard used to be divided by the observed maximum, which made every country's score hostage to one extreme observation. Percentile bounds are robust to outliers.
 - **Frozen, not recomputed.** If the bounds were recomputed each run, a country's score would move whenever *other* countries moved. With frozen bounds, a change in score always reflects a change in that country's own data. The reference is regenerated only when the index is deliberately rebased.
 - **The same rule for all three components**, so they are on a common footing before aggregation.
+- **A floor, not a zero.** Without the floor the best country on each component scores exactly 0, and the geometric mean is then set by whichever component is closest to 0: a single 0 (clamped to $10^{-4}$) outweighs every other difference, and the effective weights of the components are decided by the few countries nearest the lower bound (see [Why effective weights can depart from the design]). Mapping onto $[0.1, 1]$, like the minimum goalposts of the Human Development Index, keeps the order of countries and the relative distances on each component. The same floor applies to normalised doctor density inside capacity. The floor is set by `scale_floor()`; its effect is shown in [Diagnosis: scale and aggregation].
 
 ### Aggregation: geometric means
 
@@ -254,13 +255,14 @@ Comparing $s_j$ with the nominal weight shows where the effective weighting depa
 
 Effective weights live in log space, and log space magnifies values close to zero. Quantile normalisation maps every country at or below the reference 1st percentile to exactly 0, which the geometric mean clamps to $10^{-4}$: a log of $-9.2$, against roughly $-1$ for a typical country. Countries bunched just above the lower bound produce values like 0.01-0.05, with logs of $-4.6$ to $-3.0$. A handful of such countries can therefore account for most of a component's log variance, and through it for most of the cross-country variance of the index, leaving other components with little effective weight even though they rank countries just as clearly. The same happens inside a pillar when one sub-component is 0, as with an INFORM score of 10 once inverted.
 
-This is a property of combining a geometric mean with a scale whose zero is arbitrary (the 1st-percentile country), not of the indicators. The pipeline therefore reports, for each component, how many countries sit on or near the bounds and how much of its log variance they contribute, and recomputes the structural score under three alternatives:
+This is a property of combining a geometric mean with a scale whose zero is arbitrary (the 1st-percentile country), not of the indicators, and it is why the components are now floored at 0.1. The pipeline reports, for each component, how many countries sit on or near the bounds and how much of its log variance they contribute, and recomputes the structural score under the alternatives:
 
 | Variant | Change | Trade-off |
 |---|---|---|
-| Floored | Components mapped onto $[0.1, 1]$ before the geometric mean, like the minimum goalposts of the Human Development Index | Keeps the geometric mean and the distances between countries; the floor is a choice |
+| Published | Components on $[0.1, 1]$, geometric mean | Keeps the geometric mean and the distances between countries; the floor is a choice |
+| No floor | Components on $[0, 1]$, zeros clamped to $10^{-4}$: the version 4.10 method | Effective weights set by the countries nearest the lower bound |
 | Percentile | Each component replaced by its percentile rank | Effective weights equal by construction; discards the size of the gaps between countries |
-| Arithmetic | Arithmetic mean of the current components | No log-space magnification; fully compensatory, contrary to the framework |
+| Arithmetic | Arithmetic mean of the normalised components | No log-space magnification; fully compensatory, contrary to the framework |
 
 #### Limits of the decomposition
 
@@ -289,37 +291,31 @@ To adapt the country score to a worksite, a Delphi-style survey of medical offic
   - inputs are reduced to those actually used (two WHO indicators instead of eight; no UN IGME or INFORM headline aggregates; GBD "all causes" plus level-2 causes instead of hard-coded cause lists);
   - every score is decomposed per country, and the effective weight of each component across countries is reported;
   - comparisons are made against the previous run of the pipeline instead of the legacy CRPI spreadsheets.
+- **Current revision** maps every normalised component onto $[0.1, 1]$ instead of $[0, 1]$, so that no country enters the geometric mean at 0. Scores are not comparable with version 4.10.
 
 ## Results
 
 ### Components
 
-Hazard: the all-cause DALY rate.
+The three components on a common scale: hazard (all-cause DALY rate), vulnerability and lack of coping capacity. Higher means more risk.
 
 ```{r}
-tar_read(map_daly_avg)
+#| fig-width: 12
+#| fig-height: 3.8
+#| dpi: 300
+tar_read(fig_component_maps)
 ```
 
-Vulnerability.
+The ten most vulnerable countries, and the ten with the least coping capacity:
 
 ```{r}
-tar_read(map_vul_score)
-```
-
-```{r}
-#| fig-height: 12
+#| fig-height: 3.5
 #| dpi: 300
 tar_read(fig_vul_bar)
 ```
 
-Coping capacity.
-
 ```{r}
-tar_read(map_cap_score)
-```
-
-```{r}
-#| fig-height: 12
+#| fig-height: 3.5
 #| dpi: 300
 tar_read(fig_cap_bar)
 ```
@@ -340,8 +336,10 @@ tar_read(fig_3d_risk)
 tar_read(fig_risk_hist)
 ```
 
+The ten countries with the highest structural risk:
+
 ```{r}
-#| fig-height: 12
+#| fig-height: 3.5
 #| dpi: 300
 tar_read(fig_risk_bars)
 ```
@@ -362,7 +360,7 @@ The severity-adjusted risk:
 tar_read(map_adj_risk_score)
 ```
 
-The shift between the structural and the severity-adjusted score:
+The shift between the structural and the severity-adjusted score, for the ten countries with the highest severity-adjusted risk:
 
 ```{r}
 tar_read(fig_risk_shift)
@@ -371,7 +369,20 @@ tar_read(fig_risk_shift)
 How much of each affected country's score comes from the crisis modifier. It should be a visible but minority contribution:
 
 ```{r}
-tar_read(fig_severity_uplift)
+tar_read(fig_crisis_modifier_share)
+```
+
+```{r}
+tar_read(crisis_modifier_share) |>
+  head(15) |>
+  dplyr::select(dplyr::any_of(c("country", "severity_index", "overall_risk",
+                                "severity_adjusted_risk", "severity_uplift",
+                                "crisis_share", "uplift_via_hazard",
+                                "uplift_via_vulnerability",
+                                "uplift_via_capacity"))) |>
+  knitr::kable(digits = 3, caption = paste(
+    "Crisis uplift in points and as a share of the severity-adjusted score,",
+    "split by the component it acts through"))
 ```
 
 Which channels were activated, at what intensity, and what the version 4.00 formula would have produced. This is the table to consult when asked why a country changed band:
@@ -423,7 +434,7 @@ gw$indicator |>
 
 #### Diagnosis: scale and aggregation
 
-The scale of each component, on the countries scored in this run. `log_var_from_near_zero` is the share of the component's log variance contributed by countries scoring below 0.05:
+The scale of each component, on the countries scored in this run. Counts refer to the normalised scale before the floor; `log_var_from_near_lower` is the share of the component's log variance contributed by countries within 0.05 of the lower bound:
 
 ```{r}
 tar_read(component_scale_diagnostics) |>
@@ -455,10 +466,10 @@ sv$summary |>
 ```{r}
 tar_read(scoring_floor_sensitivity) |>
   knitr::kable(digits = 3,
-               caption = "Variance shares of the floored variant by floor")
+               caption = "Variance shares by floor (0 = version 4.10)")
 ```
 
-If the weights move substantially with the floor, they are driven by the few countries nearest to zero rather than by the bulk of the distribution, and the floored or percentile formulation should be preferred.
+The row with floor 0 is the version 4.10 method. The further its shares sit from those of the published floor, the more the old effective weights were driven by the few countries nearest the lower bound rather than by the bulk of the distribution.
 
 ### How each country reached its score
 
