@@ -43,9 +43,11 @@ test_that("only GBD and INFORM are uploaded; the rest is automatic", {
     list(risk_score = scored,
          log = data.frame(step = "Score risk", seconds = 0, rows = 30L))
   }
+  out_dir <- file.path(dir, "out")
   app <- run_scoring_app(baseline = scored_fixture(seed = 2),
                          defaults = local_inputs(dir),
                          who_downloader = fake_who(dir),
+                         output_dir = out_dir,
                          compute = fake_compute, debounce_ms = 100)
 
   shiny::testServer(app$serverFuncSource(), {
@@ -85,9 +87,17 @@ test_that("only GBD and INFORM are uploaded; the rest is automatic", {
     session$setInputs(country = scored$country[1],
                       decomp_level = "indicator", n_rows = "25")
     expect_true(is.list(output$waterfall))
+    expect_null(result()$workbook$error)
+    expect_true(file.exists(result()$workbook$path))
     sheets <- readxl::excel_sheets(output$download)
     expect_true(all(c("risk_score", "sources", "weights_component",
                       "change_vs_baseline") %in% sheets))
+
+    # The save button writes the same workbook into the output folder.
+    session$setInputs(save_xlsx = 1)
+    saved_file <- list.files(out_dir, "^risk_score_.*\\.xlsx$", full.names = TRUE)
+    expect_length(saved_file, 1)
+    expect_equal(readxl::excel_sheets(saved_file), sheets)
   })
 })
 
@@ -147,4 +157,16 @@ test_that("download_who_indicators() validates files and falls back", {
   res <- download_who_indicators(file.path(dir, "dl2"), fallback = NULL)
   expect_equal(res$origin[2], "unavailable")
   expect_true(is.na(res$path[2]))
+})
+
+test_that("a workbook that cannot be written is reported, not thrown", {
+  wb <- prepare_workbook(function(path) stop("No Excel writer is installed"))
+  expect_true(is.na(wb$path))
+  expect_match(wb$error, "No Excel writer")
+  ok <- prepare_workbook(function(path) writeLines("x", path))
+  expect_null(ok$error)
+  expect_true(file.exists(ok$path))
+  expect_null(workbook_status(list(workbook = ok)))
+  expect_match(as.character(workbook_status(list(workbook = wb))),
+               "could not be written")
 })

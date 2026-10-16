@@ -35,6 +35,8 @@
 #'   `FALSE` uses the local copies.
 #' @param who_downloader Function fetching the WHO indicators, see
 #'   [download_who_indicators()]. Exposed for testing.
+#' @param output_dir Folder where "Save to output folder" writes the workbook;
+#'   see [default_output_dir()].
 #' @param max_upload_mb Maximum size of a single uploaded file, in MB.
 #' @param compute Function computing the score, see [compute_risk_score()].
 #'   Exposed for testing.
@@ -47,6 +49,7 @@ run_scoring_app <- function(baseline = NULL,
                             defaults = default_risk_input_paths(),
                             download_who = TRUE,
                             who_downloader = download_who_indicators,
+                            output_dir = default_output_dir(),
                             max_upload_mb = 500,
                             compute = compute_risk_score,
                             debounce_ms = 1000) {
@@ -82,7 +85,7 @@ run_scoring_app <- function(baseline = NULL,
         shiny::uiOutput("status"),
         shiny::conditionalPanel(
           "output.ready",
-          shiny::downloadButton("download", "Download results (.xlsx)"),
+          workbook_ui(),
           shiny::br(), shiny::br(),
           shiny::tabsetPanel(
             id = "tabs",
@@ -281,6 +284,18 @@ run_scoring_app <- function(baseline = NULL,
 
       res$sources <- describe_risk_inputs(ch$paths, ch$names, origin())
       res$finished <- Sys.time()
+      res$workbook <- prepare_workbook(function(path) {
+        write_risk_score_xlsx(
+          res$risk_score, path,
+          sources = res$sources,
+          reference_quantiles = reference_quantiles,
+          log = res$log,
+          extra = list(weights_component = res$weights$component,
+                       weights_indicator = res$weights$indicator,
+                       decomposition_summary = res$decomposition$summary,
+                       change_vs_baseline = res$comparison)
+        )
+      })
       error(NULL)
       result(res)
 
@@ -332,7 +347,7 @@ run_scoring_app <- function(baseline = NULL,
           shiny::tagList(shiny::br(), "Decomposition unavailable: ",
                          res$decomposition_error)
         }
-      )
+      ) |> shiny::tagList(workbook_status(res))
     })
 
     output$scores <- shiny::renderTable({
@@ -415,26 +430,7 @@ run_scoring_app <- function(baseline = NULL,
 
     output$log <- shiny::renderTable(shiny::req(result())$log)
 
-    output$download <- shiny::downloadHandler(
-      filename = function() {
-        paste0("risk_score_",
-               format(result()$finished %||% Sys.time(), "%Y%m%d_%H%M"),
-               ".xlsx")
-      },
-      content = function(file) {
-        res <- result()
-        write_risk_score_xlsx(
-          res$risk_score, file,
-          sources = res$sources,
-          reference_quantiles = reference_quantiles,
-          log = res$log,
-          extra = list(weights_component = res$weights$component,
-                       weights_indicator = res$weights$indicator,
-                       decomposition_summary = res$decomposition$summary,
-                       change_vs_baseline = res$comparison)
-        )
-      }
-    )
+    register_workbook_outputs(input, output, result, output_dir)
   }
 
   shiny::shinyApp(

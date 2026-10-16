@@ -6,6 +6,7 @@
 \usage{
 run_calculator_app(
   defaults = default_risk_input_paths(),
+  output_dir = default_output_dir(),
   max_upload_mb = 500,
   compute = compute_risk_score
 )
@@ -13,6 +14,9 @@ run_calculator_app(
 \arguments{
 \item{defaults}{Named vector of default paths; see
 \code{\link[=default_risk_input_paths]{default_risk_input_paths()}}.}
+
+\item{output_dir}{Folder where "Save to output folder" writes the workbook;
+see \code{\link[=default_output_dir]{default_output_dir()}}.}
 
 \item{max_upload_mb}{Maximum size of a single uploaded file, in MB.}
 

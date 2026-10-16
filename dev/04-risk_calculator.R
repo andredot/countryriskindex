@@ -8,4 +8,6 @@
 # Needs the 'writexl' package: renv::install("writexl"); renv::snapshot()
 
 targets::tar_source()
-shiny::runApp(run_calculator_app())
+# launch.browser = TRUE opens the system browser: downloads do not work
+# reliably in the RStudio Viewer pane.
+shiny::runApp(run_calculator_app(), launch.browser = TRUE)

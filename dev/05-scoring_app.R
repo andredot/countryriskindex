@@ -12,10 +12,13 @@
 targets::tar_source()
 baseline <- tryCatch(targets::tar_read(risk_score), error = function(e) NULL)
 
-shiny::runApp(run_scoring_app(baseline = baseline))
+# launch.browser = TRUE opens the system browser: downloads do not work
+# reliably in the RStudio Viewer pane.
+shiny::runApp(run_scoring_app(baseline = baseline), launch.browser = TRUE)
 
 # To use the local WHO copies instead of downloading them:
-# shiny::runApp(run_scoring_app(baseline = baseline, download_who = FALSE))
+# shiny::runApp(run_scoring_app(baseline = baseline, download_who = FALSE),
+#               launch.browser = TRUE)
 #
 # To refresh the WHO copies used by the pipeline itself:
 # download_who_indicators(dirname(risk_input_path("who_uhc")))
