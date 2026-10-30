@@ -69,71 +69,64 @@ htmltools::img(
 
 ## Purpose
 
-This document sets out how the Country Health Risk Index is built and, above all, **why** each methodological choice was made: which indicators enter, how they are normalised, weighted and aggregated, how acute crises modify the structural score, and how every score can be explained and checked. Results are reported to illustrate those choices, not as an end in themselves.
+This document explains how the Country Health Risk Index is built and why. It sets out the principles behind the design, shows how each methodological choice follows from them, and reports the results and the checks that test whether the choices hold up in the data.
+
+## Design principles
+
+Five principles drive every choice in the index. The sections that follow refer back to them.
+
+1. **Measure burden comprehensively.** Indicators come from sources with global coverage and a published, comparable methodology (IHME, WHO, EU JRC INFORM). Where a comprehensive measure exists, it is preferred to a hand-picked list, so that nothing has to be weighted by judgement.
+2. **Treat the dimensions as complements.** Hazard, vulnerability and coping capacity describe different conditions, and a severe deficit in one cannot be offset by strength in another. They are therefore combined multiplicatively.
+3. **A score moves only when the country's own data move.** Countries are measured against a fixed reference, so that a change in a score can always be traced to a change in that country's inputs.
+4. **No single value dominates.** Outliers, values near zero, long lists of crisis drivers and extreme crises are all bounded, so that the score reflects the whole profile of a country and not one extreme number.
+5. **Every score can be explained and its evidence seen.** Each score decomposes exactly into the contributions that produced it, and the completeness of the data behind it is published alongside.
 
 ## Framework
 
-Risk is conventionally described by three dimensions: hazard, vulnerability and lack of coping capacity. The index keeps that structure and adds two modifiers that place the estimate in a specific time and place.
+Risk is described by three dimensions, hazard, vulnerability and lack of coping capacity, as in the INFORM framework. Two modifiers then place the estimate in a specific time and place.
 
 | Level | What it captures | Enters the index as |
 |---|---|---|
 | Hazard | The baseline burden of disease and injury in the population | Component (1/3 of the structural score) |
 | Vulnerability | Social and structural conditions that make people more susceptible to harm | Component (1/3) |
-| Coping capacity | The health system's ability to respond effectively | Component (1/3, inverted: less capacity = more risk) |
-| Crisis severity | Extraordinary events (conflict, epidemics, disasters) that temporarily alter all of the above | Bounded modifier on each component |
-| Site proximity | How access to care at a specific worksite differs from the national average | Odds-based modifier on the country score |
+| Coping capacity | The health system's ability to respond effectively | Component (1/3, inverted: less capacity means more risk) |
+| Crisis severity | Ongoing crises (conflict, epidemics, disasters) that temporarily worsen the three components | Bounded modifier on each component |
+| Site proximity | How access to care at a worksite differs from the national average | Odds-based modifier on the country score |
 
-The **structural risk** (`overall_risk`) is the geometric mean of the three components. The **severity-adjusted risk** (`severity_adjusted_risk`), the headline result, is the geometric mean of the same three components after the crisis modifier. The site-level adjustment is applied on top for individual worksites.
+The **structural risk** (`overall_risk`) is the geometric mean of the three components. The **severity-adjusted risk** (`severity_adjusted_risk`) is the geometric mean of the same components after the crisis modifier, and is the headline result. The site adjustment is applied on top of it for individual worksites.
 
 ## Methods
-
-### Pipeline and reproducibility
-
-The index is computed by an R package orchestrated with `targets`, with dependencies pinned by `renv` and this report rendered by Quarto from the pipeline's outputs. Every function is documented in the package manual. Two design rules keep the results reproducible:
-
-- **One definition of each step.** The list of input files (`risk_input_files()`) and the scoring chain (`score_risk()`) are each defined once and used by the pipeline and by the interactive tools alike, so a score computed in an app is identical to the one in this report.
-- **Inputs are only what the index reads.** Datasets that no downstream function used have been removed; `sources.md` is the authoritative list of what must be refreshed for a new round.
-
-```{r, eval=FALSE}
-targets::tar_visnetwork(
-  targets_only = TRUE,
-  exclude = c(
-    "report", "objectToShare", "shareOutput", starts_with("."),
-    all_of(extract_fct_names(here::here("R/utils.R")))
-  )
-)
-```
 
 ### Data sources
 
 | Source | Indicators used | Component |
 |---|---|---|
 | IHME Global Burden of Disease (GBD) | DALY rate per 100,000, all causes | Hazard |
-| | DALY rates for level-2 causes | Not scored: radar profiles and correlation analysis only |
-| IHME Healthcare Access and Quality index (HAQI, GBD 2019) | HAQ index, 0-100 | Capacity: services |
-| WHO Global Health Observatory | UHC service coverage index (9A706FD) | Capacity: financing |
+| | DALY rates for level-2 causes | Not scored: radar profiles and correlation analysis |
+| IHME Healthcare Access and Quality index (HAQI) | HAQ index, 0-100 | Capacity: services |
+| WHO data portal | UHC service coverage index (9A706FD) | Capacity: financing |
 | | Density of medical doctors (217795A) | Capacity: resources |
 | EU JRC INFORM Risk | Socio-economic vulnerability; uprooted people; food security; physical infrastructure; governance | Vulnerability, capacity |
 | EU JRC INFORM Risk, Lack of Coping Capacity sheet | Adult literacy; access to electricity; internet users; mobile subscriptions; road density; drinking water; sanitation; health expenditure per capita | Vulnerability, capacity |
-| EU JRC INFORM Severity | Severity index and its sub-dimensions; crisis drivers | Crisis modifier |
+| EU JRC INFORM Severity | Severity index, its sub-dimensions and the crisis drivers | Crisis modifier |
 | Crisis modifier matrix | Which channels each crisis driver acts on | Crisis modifier |
 | Medical Officer surveys and site assessments | Diagnosis and transport delays, outbreak concern, population | Site proximity |
 
-The INFORM indicators used are the published 0-10 component scores, not the raw underlying data. The import checks this explicitly: where a workbook carries both versions of an indicator, the column whose values lie in 0-10 is selected, and a layout change fails loudly rather than silently mixing scales.
+The INFORM indicators are the published 0-10 component scores. Where a workbook carries both a raw indicator and its score, the import selects the column whose values lie in 0-10 and stops with an error if none does, so that scales are never mixed silently.
 
-### Hazard: why the all-cause DALY rate
+### Hazard: the all-cause DALY rate
 
-Earlier versions built hazard from a hand-picked list of communicable diseases and, later, from ten causes selected by GBD identifier plus an "other NCDs" aggregate. Both were arbitrary in composition and fragile across GBD rounds. Hazard is now the **all-cause DALY rate**:
+Hazard is the **all-cause DALY rate** (Principle 1).
 
-- **DALYs** combine premature death and years lived with disability in one comparable unit, so each condition contributes in proportion to its actual burden and no disease weighting has to be invented.
-- **A rate** rather than a count makes countries of different size comparable and reads as the probability of a health event in a year.
-- **All causes** is mutually exclusive and collectively exhaustive by GBD construction. Level-2 causes are still extracted, but only to show *which* burdens dominate in a country (radar chart), never to score it.
+- DALYs combine premature death and years lived with disability in one unit, so every condition contributes in proportion to its actual burden and no disease weights have to be chosen.
+- A rate makes countries of different size comparable and reads as the probability of a health event in a year.
+- "All causes" is exhaustive and free of double counting by GBD construction, and stays stable from one GBD round to the next, which a list of selected causes would not.
 
-GBD estimates describe the general resident population. Expatriate workforces have different age structures and exposures; no demographic adjustment is applied (see [Limitations]).
+Level-2 causes are extracted as well, but only to show which burdens dominate in a country (radar chart). They never enter the score.
 
 ### Vulnerability: four sub-components
 
-Vulnerability follows the domains that the literature on social vulnerability consistently identifies (economic status, infrastructure, demographic risk and education), measured with INFORM indicators for global coverage and comparability:
+Vulnerability covers the domains that studies of social vulnerability consistently identify: economic status, infrastructure, vulnerable population groups and education.
 
 | Sub-component | Built from |
 |---|---|
@@ -142,11 +135,11 @@ Vulnerability follows the domains that the literature on social vulnerability co
 | Vulnerable groups | Mean of uprooted people and food security |
 | Education | Adult literacy |
 
-All INFORM scores are oriented so that higher means better before aggregation. **Within** a sub-component indicators are averaged arithmetically, because they are alternative measures of the same thing and may substitute for each other. **Across** sub-components they are combined geometrically, because they are distinct conditions and a deficit in one is not offset by strength in another.
+Indicators within a sub-component are alternative measures of the same condition, so they are averaged arithmetically and may compensate for each other. The sub-components themselves are distinct conditions, so they are combined geometrically (Principle 2).
 
-### Coping capacity: the HSPA functions
+### Coping capacity: the health system functions
 
-Capacity is defined as the system's ability to govern, raise resources, finance and deliver services, following the four functions of the WHO Health System Performance Assessment framework:
+Capacity is the health system's ability to govern, raise resources, finance and deliver services, following the four functions of the WHO Health System Performance Assessment framework.
 
 | Function | Indicator |
 |---|---|
@@ -155,149 +148,138 @@ Capacity is defined as the system's ability to govern, raise resources, finance 
 | Resource generation | Doctor density, log-transformed and normalised to 0-100 |
 | Service delivery | HAQ index |
 
-Doctor density is the one raw rate in the index. It spans roughly 0.1 to 85 per 10,000, and before version 4.10 it entered the geometric mean unscaled, carrying several times the combined influence of the other three functions. It is now log-transformed (the distribution is heavily right-skewed) and put on the same 0-100 scale.
+Doctor density is the only raw rate among them. It spans roughly 0.1 to 85 per 10,000 and is heavily right-skewed. Entered as it is, it would carry several times the weight of the three 0-100 functions inside the geometric mean, so it is log-transformed and put on the same 0-100 scale (Principle 4).
 
-### Normalisation: frozen quantile bounds and a scale floor
+### A common scale
 
-Each component is scaled between the 1st and 99th percentile of a **reference distribution fixed in 2025**, with values beyond the bounds clipped, and then mapped onto $[f, 1]$ with a floor $f = 0.1$:
+Each component is scaled between the 1st and 99th percentile of a **reference distribution fixed in 2025**, clipped at those bounds, and mapped onto $[f, 1]$ with a floor $f = 0.1$:
 
 $$
 x^{*} = f + (1 - f)\,\min\!\Big(1, \max\!\Big(0, \frac{x - q_{01}}{q_{99} - q_{01}}\Big)\Big)
 $$
 
-- **Quantiles, not min/max.** Hazard used to be divided by the observed maximum, which made every country's score hostage to one extreme observation. Percentile bounds are robust to outliers.
-- **Frozen, not recomputed.** If the bounds were recomputed each run, a country's score would move whenever *other* countries moved. With frozen bounds, a change in score always reflects a change in that country's own data. The reference is regenerated only when the index is deliberately rebased.
-- **The same rule for all three components**, so they are on a common footing before aggregation.
-- **A floor, not a zero.** Without the floor the best country on each component scores exactly 0, and the geometric mean is then set by whichever component is closest to 0: a single 0 (clamped to $10^{-4}$) outweighs every other difference, and the effective weights of the components are decided by the few countries nearest the lower bound (see [Why effective weights can depart from the design]). Mapping onto $[0.1, 1]$, like the minimum goalposts of the Human Development Index, keeps the order of countries and the relative distances on each component. The same floor applies to normalised doctor density inside capacity. The floor is set by `scale_floor()`; its effect is shown in [Diagnosis: scale and aggregation].
+Each element of this formula follows from a principle:
 
-### Aggregation: geometric means
+- **Percentile bounds** keep a single extreme country from compressing everyone else's scores, as dividing by the observed maximum would (Principle 4).
+- **A fixed reference** means that a score changes only when the country's own data change. Bounds recomputed from each new release would move every score whenever other countries moved (Principle 3). The reference is regenerated only when the index is deliberately rebased.
+- **The same rule for all three components** puts them on a common footing before they are combined.
+- **The floor at 0.1** keeps any country from entering the geometric mean at 0. On a scale that starts at 0, the best country on each component would score exactly 0, and a single 0 would outweigh every other difference between countries (see [Why the scale has a floor]). Mapping onto $[0.1, 1]$, like the minimum goalposts of the Human Development Index, keeps the order of countries and the relative distances on each component unchanged (Principle 4). The same floor applies to normalised doctor density inside capacity.
 
-The structural score is the geometric mean of the three components, as in the INFORM Risk Index:
+### Combining the components
+
+The structural score is the geometric mean of the three components:
 
 $$
 r = \big(H \cdot V \cdot C\big)^{1/3}
 $$
 
-The geometric mean is chosen over the arithmetic mean because the components are complements, not substitutes. A severe weakness in one dimension (very low capacity, say) compromises the whole system and is not cancelled by strength elsewhere. The nominal weights are equal, 1/3 each in log space; how much each component *effectively* weighs across countries is reported in [Effective weights across countries].
+The geometric mean expresses Principle 2. A severe weakness in one dimension, such as very low capacity, compromises the whole system and is only partly offset by strength elsewhere, whereas an arithmetic mean would let the dimensions substitute for each other freely. The nominal weights are equal, 1/3 each in log space. How much each component actually weighs across countries is measured in [Effective weights].
 
-A pillar is computed only if at least three of its four sub-components are available, and the structural score only if all three components are. A country missing an entire dimension is reported as missing rather than scored on what remains.
+### Missing data
 
-### Missing data: completeness flag
+A pillar is computed only when at least three of its four sub-components are available, and the structural score only when all three components are. A country missing a whole dimension is reported as missing, not scored on what remains.
 
-Data sparsity correlates with fragility, so without an explicit flag the countries most likely to be scored from a partial variable set would be precisely the high-risk ones. The pipeline counts the missing indicators behind each component, publishes the completeness proportion, and marks a country `low_confidence` when more than three indicators are missing overall or more than half of any single component's indicators are missing.
+Data sparsity is more common in fragile countries, which are precisely the high-risk ones. Their scores would otherwise rest on a thinner evidence base than those of well-measured countries without anyone being able to tell (Principle 5). The pipeline therefore counts the missing indicators behind each component, publishes the completeness proportion, and flags a country as `low_confidence` when more than three indicators are missing overall or more than half of any one component's indicators are missing.
 
-### Crisis severity: driver-routed, bounded modifier
+### Crisis modifier
 
-The INFORM Severity Index (1 = low to 5 = extreme) rates ongoing humanitarian crises on their impact, the conditions of the people affected and their complexity. It is applied in two steps.
+The INFORM Severity Index rates ongoing humanitarian crises from 1 (low) to 5 (extreme) on their impact, the conditions of the people affected and their complexity. A crisis worsens specific dimensions of risk, so the modifier acts on the components individually, through three choices.
 
-**Routing.** Each severity sub-dimension acts only on the component it is conceptually responsible for:
+**Each severity sub-dimension acts on the component it describes.**
 
 | Component | Severity sub-dimension | Rationale |
 |---|---|---|
 | Hazard | Geometric mean of *Conditions of people affected* and *Impact of the crisis* | The acute health burden of the crisis |
 | Vulnerability | *Society and safety* | Social cohesion and protection of the affected population |
-| Capacity | *Operating environment* | Access constraints that degrade effective health system capacity |
+| Capacity | *Operating environment* | Access constraints that reduce what the health system can deliver |
 
-Which channels are active depends on the country's crisis **drivers** (conflict, drought, epidemic, ...), mapped through the crisis modifier matrix. Driver counts become a saturating weight $w = n/(n + \kappa)$, with $\kappa = 2$, so long driver lists cannot accumulate unbounded uplift. A country with a severity record but none of whose drivers is in the matrix receives a floor weight of 1/3 on every component (the weight of one driver), so that a gap in the matrix cannot switch the modifier off. Countries with a matched driver keep exactly the channels the matrix gives them: a heatwave acts on hazard (environmental) and capacity, not on vulnerability. The matrix is versioned with the code (`inst/extdata/crisis_modifier_matrix.xlsx`), one TRUE/FALSE flag per driver and channel with its rationale, and is checked against the current INFORM drivers on every run (see the coverage tables below).
+**The crisis drivers decide which components are affected, and by how much.** The crisis modifier matrix records, for each INFORM driver (conflict, floods, epidemic, heatwave, ...), the channels it acts on. There are five hazard channels (communicable diseases, injuries, WASH, environmental exposure, nutrition), plus society and safety for vulnerability and the operating environment for capacity. A heatwave, for example, acts on hazard through environmental exposure and on capacity, but not on vulnerability. The matrix holds one TRUE/FALSE flag per driver and channel, each with its rationale. It is versioned with the code (`inst/extdata/crisis_modifier_matrix.xlsx`) and checked against the drivers in the current INFORM data on every run.
 
-**Bounded shift.** Each component is shifted on the log-odds scale:
+The number of a country's drivers acting on a component becomes a weight $w = n/(n + \kappa)$ with $\kappa = 2$: 1/3 for one driver, 1/2 for two, 2/3 for four. The weight saturates, so a long list of drivers cannot accumulate unlimited uplift (Principle 4). A country with a severity record but none of whose drivers appears in the matrix receives 1/3 on every component, the weight of one driver, so that a gap in the matrix cannot switch the modifier off.
+
+**The adjustment is a bounded shift on the log-odds scale.**
 
 $$
 \text{component}_{adj} = \operatorname{logistic}\Big( \operatorname{logit}(\text{component}) + \beta_k \, w_k \, i_k \Big), \qquad i_k = \frac{S_k - 1}{4}
 $$
 
-and the severity-adjusted risk is the geometric mean of the adjusted components. Three properties motivate this form:
+The severity-adjusted risk is then the geometric mean of the adjusted components. This form has three properties that follow from the principles:
 
-- **Bounded.** A component approaches but never reaches 1, so structural differences survive even the most extreme crisis.
-- **Interpretable.** $\beta_k$ is a log odds ratio, with the same meaning at any baseline.
-- **Compensatory.** Through the geometric mean, a shift on one component is damped to roughly a third, so a strong health system can legitimately offset a crisis rather than be overruled by it.
+- A component approaches 1 but never reaches it, so structural differences between countries survive even the most extreme crisis (Principle 4). A modifier that pulled the headline score towards 1 would erase them at high severity.
+- $\beta_k$ is a log odds ratio, with the same meaning at any baseline.
+- Through the geometric mean, a shift on one component is damped to roughly a third, so a strong health system can offset part of a crisis (Principle 2).
 
-The version 4.00 formula, $r + \frac{S-1}{4}(1-r)$, was a convex pull towards 1: at severity 5 it returned 1.0 for every country regardless of hazard, vulnerability or capacity, and half a point of severity moved the index more than doubling measured vulnerability. Treating "no severity record" and "severity 1" identically (intensity 0) also removes the jump that used to occur when a country entered the INFORM Severity list.
+A country with no severity record and a country at severity 1 both have intensity 0, so the modifier starts smoothly from zero instead of jumping when a country first enters the INFORM Severity list.
 
-<aside>The coefficients $\beta$ are a management decision, not an estimate. Revisit them deliberately and record the reason.</aside>
+<aside>The coefficients $\beta$ are a policy decision, not an estimate. Revisit them deliberately and record the reason.</aside>
 
-The coefficients ($\beta$ = 0.8 for hazard, 1.0 for vulnerability and capacity) are calibrated to a stated policy: the most severe crisis in the world, on all three channels at once, should move a mid-range country by about one band on a five-band scale (about +0.17), not pin it to the maximum. A minor single-driver crisis at severity 2 moves it by about +0.02, against +0.16 under version 4.00. The calibration is recomputed from `severity_calibration_table()` whenever the coefficients change:
+The coefficients ($\beta$ = 0.8 for hazard, 1.0 for vulnerability and capacity) are set to a stated policy: the most severe crisis in the world, acting on all channels at once, should move a mid-range country by about one band on a five-band scale (+0.17 from a structural risk of 0.35), not pin it to the maximum. A moderate crisis (severity 3, two drivers) adds about +0.06, and a minor single-driver crisis at severity 2 about +0.02. The figure is recomputed from `severity_calibration_table()` whenever the coefficients change:
 
 ```{r}
 #| label: severity-calibration
+#| fig-height: 3.8
 tar_read(fig_severity_calibration)
 ```
 
-### Explaining the score
+### Site-level adjustment
 
-A score that cannot be explained cannot be defended, so the index is decomposed at two levels: per country (*why did this country get this score?*) and across countries (*how much does each component actually weigh?*).
+To adapt the country score to a worksite, a Delphi-style survey of medical officers estimates how sensitive 14 clinical scenarios are to delays in diagnosis and transport. Site assessments report the actual delays, outbreak concerns and population at each worksite. These give three scores (disease, outbreak and people), whose sum is added to the country risk on the odds scale. Working on the odds scale keeps the result within 0-1 and makes the adjustment larger where the baseline risk is high. This module is described here for completeness and is not part of the results below.
 
-#### Per country: exact decomposition
+### Explaining and checking the score
 
-Because geometric means are additive in logarithms, a country's score decomposes against a reference country (the geometric mean of all countries) with no approximation:
+#### Per country: an exact decomposition
+
+Geometric means are additive in logarithms, so a country's score decomposes exactly against a reference country, the geometric mean of all countries (Principle 5):
 
 $$
 \log r_c - \log r_{ref} = \frac{1}{3}\sum_k \left[\log x_{k,c} - \log x_{k,ref}\right] + \text{crisis modifier}
 $$
 
-Read multiplicatively: *the reference country scores 0.38; hazard multiplies that by 1.16, vulnerability by 1.13, capacity divides it by 1.05, giving 0.47.* Below the component level the identity no longer holds, because inversion and normalisation are affine rather than multiplicative. Sub-components are therefore attributed by **exact Shapley values**, enumerated over all sixteen coalitions per pillar, which sum exactly to the pillar's contribution. Every bar in the waterfall charts is exact, not a heuristic.
+Read multiplicatively: *the reference country scores 0.38; hazard multiplies that by 1.16, vulnerability by 1.13, capacity divides it by 1.05, giving 0.47.* Below the component level this identity no longer holds, because inversion and normalisation are not multiplicative. Sub-components are therefore attributed by exact Shapley values, enumerated over all sixteen combinations of a pillar's four inputs, which sum exactly to the pillar's contribution. Every bar in the waterfall charts is exact.
 
-#### Across countries: effective weights
+#### Effective weights
 
-The nominal weights are fixed at 1/3, but a component on which all countries score alike cannot move a ranking, whatever its nominal weight. Because the decomposition is exact, the published log score is an exact sum of terms, $T = \sum_j c_j$ (one per component or indicator, plus the crisis modifier). Two summaries follow with no estimation error:
+A component on which all countries score alike cannot change a ranking, whatever its nominal weight. Since the decomposition is exact, the published log score is an exact sum of terms, $T = \sum_j c_j$ (one per component or indicator, plus the crisis modifier). Two summaries follow with no estimation error:
 
 $$
 \beta^{std}_j = \frac{\operatorname{sd}(c_j)}{\operatorname{sd}(T)}, \qquad
 s_j = \frac{\operatorname{cov}(c_j, T)}{\operatorname{var}(T)} = \beta^{std}_j \cdot \operatorname{cor}(c_j, T)
 $$
 
-- $\beta^{std}_j$ is the **standardised beta coefficient**: exactly what a regression of log risk on the log components returns (coefficients 1/3, $R^2 = 1$), rescaled to standard deviations.
-- $s_j$ is its **share of the cross-country variance** of the score (Pratt's measure). The shares sum to exactly 100% and divide the variance between correlated terms as well. A negative share means the term tends to narrow rather than widen the differences between countries.
+- $\beta^{std}_j$ is the **standardised beta coefficient**: what a regression of log risk on the log components returns (coefficients 1/3, $R^2 = 1$), rescaled to standard deviations.
+- $s_j$ is the term's **share of the cross-country variance** of the score (Pratt's measure). The shares sum to 100% and also divide the variance that correlated terms share. A negative share means the term narrows the differences between countries.
 
 Comparing $s_j$ with the nominal weight shows where the effective weighting departs from the design.
 
-#### Why effective weights can depart from the design
+#### Why the scale has a floor
 
-Effective weights live in log space, and log space magnifies values close to zero. Quantile normalisation maps every country at or below the reference 1st percentile to exactly 0, which the geometric mean clamps to $10^{-4}$: a log of $-9.2$, against roughly $-1$ for a typical country. Countries bunched just above the lower bound produce values like 0.01-0.05, with logs of $-4.6$ to $-3.0$. A handful of such countries can therefore account for most of a component's log variance, and through it for most of the cross-country variance of the index, leaving other components with little effective weight even though they rank countries just as clearly. The same happens inside a pillar when one sub-component is 0, as with an INFORM score of 10 once inverted.
+Effective weights are computed in log space, and log space magnifies values close to zero. On a scale starting at 0, the countries at the lower bound enter the geometric mean at 0, clamped to $10^{-4}$: a log of $-9.2$, against about $-1$ for a typical country. Countries just above the bound give logs of $-3$ to $-5$. A handful of such countries can then carry most of a component's log variance, and with it most of the variance of the index, leaving the other components with little effective weight even when they rank countries just as clearly. The same happens inside a pillar when a sub-component is 0. The floor at 0.1 removes this effect while keeping the geometric mean and the distances between countries (Principle 4).
 
-This is a property of combining a geometric mean with a scale whose zero is arbitrary (the 1st-percentile country), not of the indicators, and it is why the components are now floored at 0.1. The pipeline reports, for each component, how many countries sit on or near the bounds and how much of its log variance they contribute, and recomputes the structural score under the alternatives:
+To show that the floor does what it is meant to and that the results do not hinge on it, the pipeline reports how many countries sit near each bound and recomputes the structural score under alternatives:
 
-| Variant | Change | Trade-off |
+| Variant | Method | Trade-off |
 |---|---|---|
-| Published | Components on $[0.1, 1]$, geometric mean | Keeps the geometric mean and the distances between countries; the floor is a choice |
-| No floor | Components on $[0, 1]$, zeros clamped to $10^{-4}$: the version 4.10 method | Effective weights set by the countries nearest the lower bound |
-| Percentile | Each component replaced by its percentile rank | Effective weights equal by construction; discards the size of the gaps between countries |
-| Arithmetic | Arithmetic mean of the normalised components | No log-space magnification; fully compensatory, contrary to the framework |
+| Published | Components on $[0.1, 1]$, geometric mean | Keeps the geometric mean and the distances between countries; the floor value is a choice |
+| No floor | Components on $[0, 1]$, zeros clamped to $10^{-4}$ | Effective weights set by the countries nearest the lower bound |
+| Percentile | Each component replaced by its percentile rank | Equal effective weights by construction; loses the size of the gaps between countries |
+| Arithmetic | Arithmetic mean of the components | No log-space magnification; fully compensatory, against Principle 2 |
 
-#### Limits of the decomposition
+#### What the decomposition cannot show
 
-Where components are correlated, how shared variance is split between them is partly a convention: Shapley divides it evenly by axiom, Pratt's measure by covariance, and neither is uniquely correct. And a decomposition explains the arithmetic, not the validity: it shows faithfully how a number was produced, not whether the number is right.
+Where components are correlated, the split of their shared variance is partly a convention: Shapley values divide it evenly, Pratt's measure by covariance, and neither is uniquely correct. A decomposition also explains the arithmetic, not the validity: it shows how a number was produced, not whether the number is right.
 
-### Validation
+#### Validity checks
 
-Two internal checks are reported. Neither is an external validation (see [Limitations]).
+Two internal checks are reported. Neither replaces external validation (see [Limitations]).
 
-- **Correlation matrix.** Pairwise Pearson correlations between indicators, grouped by component, show whether indicators within a component capture a coherent dimension and whether the components are distinct from each other.
-- **Dimensionality.** A principal component analysis of the scaled sub-components shows how many *independent* dimensions the index measures. If the pillars are largely collinear, the equal weighting implied by the geometric mean silently over-weights whatever latent factor they share, usually national income. A low effective dimensionality does not invalidate the index, but it should be reported rather than assumed away.
-
-### Site-level proximity
-
-To adapt the country score to a worksite, a Delphi-style survey of medical officers estimates how sensitive 14 clinical scenarios are to delays in diagnosis and transport. Site assessments then report the actual delays, outbreak concerns and population at each worksite. These yield three scores (disease, outbreak and people), summed into a proximity score that is added to the baseline risk on the odds scale and transformed back, so the result stays within 0-1 and the amplification is larger where baseline risk is high. This module is unchanged in the current version and is scheduled for revision.
-
-### Changes from previous versions
-
-- **v4.00** replaced individual diseases with aggregate GBD burden, expanded and grounded the vulnerability, capacity and severity sources, introduced geometric aggregation, and streamlined the proximity adjustment.
-- **v4.10** keeps the framework and corrects its implementation:
-  - the crisis modifier is routed onto components as a bounded log-odds shift instead of overriding the score;
-  - all components use the same frozen quantile normalisation;
-  - doctor density is normalised;
-  - thin evidence is flagged;
-  - a dimensionality check is added;
-  - inputs are reduced to those actually used (two WHO indicators instead of eight; no UN IGME or INFORM headline aggregates; GBD "all causes" plus level-2 causes instead of hard-coded cause lists);
-  - every score is decomposed per country, and the effective weight of each component across countries is reported;
-  - comparisons are made against the previous run of the pipeline instead of the legacy CRPI spreadsheets.
-- **Current revision** maps every normalised component onto $[0.1, 1]$ instead of $[0, 1]$, so that no country enters the geometric mean at 0. Scores are not comparable with version 4.10.
+- The **correlation matrix** shows whether the indicators within a component measure a coherent dimension and whether the components are distinct from each other.
+- A **principal component analysis** of the scaled sub-components shows how many independent dimensions the index measures. If the pillars are largely collinear, the equal weighting implied by the geometric mean over-weights whatever latent factor they share, usually national income.
 
 ## Results
 
 ### Components
 
-The three components on a common scale: hazard (all-cause DALY rate), vulnerability and lack of coping capacity. Higher means more risk.
+Hazard, vulnerability and lack of coping capacity on their common scale. Higher means more risk.
 
 ```{r}
 #| fig-width: 12
@@ -326,7 +308,7 @@ tar_read(fig_cap_bar)
 tar_read(map_risk_score)
 ```
 
-The three components in one space, where available:
+The three components in one space, where all are available:
 
 ```{r}
 tar_read(fig_3d_risk)
@@ -360,13 +342,13 @@ The severity-adjusted risk:
 tar_read(map_adj_risk_score)
 ```
 
-The shift between the structural and the severity-adjusted score, for the ten countries with the highest severity-adjusted risk:
+The structural and the severity-adjusted score for the ten countries with the highest severity-adjusted risk:
 
 ```{r}
 tar_read(fig_risk_shift)
 ```
 
-How much of each affected country's score comes from the crisis modifier. It should be a visible but minority contribution:
+How much of each affected country's score comes from the crisis modifier. By design it is a visible but minority share:
 
 ```{r}
 tar_read(fig_crisis_modifier_share)
@@ -385,29 +367,53 @@ tar_read(crisis_modifier_share) |>
     "split by the component it acts through"))
 ```
 
-Which channels were activated, at what intensity, and what the version 4.00 formula would have produced. This is the table to consult when asked why a country changed band:
+Which channels are active for each country, with what weight and intensity. This is the table to consult when asked why a country moved band:
 
 ```{r}
 tar_read(severity_effect_table) |>
   head(20) |>
+  dplyr::select(dplyr::any_of(c("country", "severity_index", "overall_risk",
+                                "severity_adjusted_risk", "severity_uplift",
+                                "w_hazard", "w_vulnerability", "w_capacity",
+                                "i_hazard", "i_vulnerability", "i_capacity",
+                                "driver_matched", "low_confidence"))) |>
   knitr::kable(digits = 3)
 ```
 
-The crisis modifier matrix is checked against the drivers in the current INFORM Severity data. Channels marked `labels` hold the name of an INFORM sub-dimension instead of one flag per driver, so they apply to every driver and cannot tell drivers apart; INFORM drivers missing from the matrix leave their countries on the floor weight.
+### How each country reached its score
+
+From the reference country to the severity-adjusted score of the highest-risk country. The running product reproduces the score exactly:
 
 ```{r}
-cma <- tar_read(crisis_modifier_audit)
-knitr::kable(cma$summary, caption = "Crisis modifier matrix: coverage")
-knitr::kable(cma$channels, caption = "Crisis modifier matrix: channels")
-if (nrow(cma$unmatched) > 0) {
-  knitr::kable(cma$unmatched,
-               caption = "INFORM Severity drivers not in the matrix")
-}
+#| fig-height: 7
+tar_read(fig_waterfall_top)
 ```
 
-### Effective weights across countries
+The same contributions as signed bars. A dashed outline marks a component with incomplete inputs:
 
-The bars show each component's share of the cross-country variance of the severity-adjusted score; the diamonds show its nominal weight.
+```{r}
+#| fig-height: 6
+tar_read(fig_contributions_top)
+```
+
+```{r}
+tar_read(decomposition_summary) |>
+  head(25) |>
+  knitr::kable(digits = 3,
+               caption = "Score decomposition summary, highest risk first")
+```
+
+Any other country can be drawn from the precomputed decomposition, or explored in the Shiny explorer (`tar_read(shiny_explorer)`):
+
+```{r}
+#| eval: false
+create_decomposition_waterfall(tar_read(risk_decomposition),
+                               country = "Angola", level = "indicator")
+```
+
+### Effective weights
+
+Each component's share of the cross-country variance of the severity-adjusted score (bars), against its nominal weight (diamonds):
 
 ```{r}
 #| fig-height: 4
@@ -444,75 +450,7 @@ gw$indicator |>
     "with complete indicators)"))
 ```
 
-#### Diagnosis: scale and aggregation
-
-The scale of each component, on the countries scored in this run. Counts refer to the normalised scale before the floor; `log_var_from_near_lower` is the share of the component's log variance contributed by countries within 0.05 of the lower bound:
-
-```{r}
-tar_read(component_scale_diagnostics) |>
-  knitr::kable(digits = 3, caption = "Scale of each component")
-```
-
-Inside the pillars: sub-components at 0 collapse the pillar's geometric mean. The benchmark rows give the Spearman correlation between our pillar and INFORM's own headline dimension:
-
-```{r}
-tar_read(pillar_diagnostics) |>
-  knitr::kable(digits = 3, caption = "Sub-components of vulnerability and capacity")
-```
-
-The effective weights under the alternative methods, and how much each would change the rankings:
-
-```{r}
-#| fig-height: 5
-tar_read(fig_scoring_variants)
-```
-
-```{r}
-sv <- tar_read(scoring_variants)
-sv$summary |>
-  knitr::kable(digits = 3, caption = glue(
-    "Agreement of each variant with the published method ({sv$n} countries; ",
-    "overlap of the top {sv$top_n})"))
-```
-
-```{r}
-tar_read(scoring_floor_sensitivity) |>
-  knitr::kable(digits = 3,
-               caption = "Variance shares by floor (0 = version 4.10)")
-```
-
-The row with floor 0 is the version 4.10 method. The further its shares sit from those of the published floor, the more the old effective weights were driven by the few countries nearest the lower bound rather than by the bulk of the distribution.
-
-### How each country reached its score
-
-From the reference country to the published severity-adjusted score, for the highest-risk country. The running product reproduces the score exactly:
-
-```{r}
-#| fig-height: 7
-tar_read(fig_waterfall_top)
-```
-
-The same contributions as signed bars. A dashed outline marks a component with incomplete inputs:
-
-```{r}
-#| fig-height: 6
-tar_read(fig_contributions_top)
-```
-
-```{r}
-tar_read(decomposition_summary) |>
-  head(25) |>
-  knitr::kable(digits = 3,
-               caption = "Score decomposition summary, highest risk first")
-```
-
-Any other country's decomposition can be drawn from the precomputed object, or explored in the Shiny explorer (`tar_read(shiny_explorer)`):
-
-```{r}
-#| eval: false
-create_decomposition_waterfall(tar_read(risk_decomposition),
-                               country = "Angola", level = "indicator")
-```
+## Checks
 
 ### Data completeness
 
@@ -530,9 +468,60 @@ tar_read(risk_score) |>
                caption = "Countries flagged as low confidence")
 ```
 
-### Validation
+### Scale and aggregation
 
-#### Correlation
+How each component sits on its scale. Counts refer to the normalised scale before the floor; `log_var_from_near_lower` is the share of the component's log variance that comes from countries within 0.05 of the lower bound:
+
+```{r}
+tar_read(component_scale_diagnostics) |>
+  knitr::kable(digits = 3, caption = "Scale of each component")
+```
+
+Inside the pillars, a sub-component at 0 collapses the pillar's geometric mean. The benchmark rows give the Spearman correlation between each pillar and INFORM's own headline dimension:
+
+```{r}
+tar_read(pillar_diagnostics) |>
+  knitr::kable(digits = 3,
+               caption = "Sub-components of vulnerability and capacity")
+```
+
+Effective weights under the alternative methods, and how far each would change the rankings:
+
+```{r}
+#| fig-height: 5
+tar_read(fig_scoring_variants)
+```
+
+```{r}
+sv <- tar_read(scoring_variants)
+sv$summary |>
+  knitr::kable(digits = 3, caption = glue(
+    "Agreement of each variant with the published method ({sv$n} countries; ",
+    "overlap of the top {sv$top_n})"))
+```
+
+```{r}
+tar_read(scoring_floor_sensitivity) |>
+  knitr::kable(digits = 3, caption = "Variance shares by floor (0 = no floor)")
+```
+
+If the shares at floor 0 differ markedly from those at the published floor, the unfloored weights were driven by the few countries nearest the lower bound, which is what the floor is there to prevent.
+
+### Crisis modifier matrix
+
+The matrix is checked against the drivers in the current INFORM Severity data. Every channel should be a set of per-driver flags; INFORM drivers missing from the matrix would leave their countries on the default weight of 1/3.
+
+```{r}
+cma <- tar_read(crisis_modifier_audit)
+knitr::kable(cma$summary, caption = "Crisis modifier matrix: coverage")
+knitr::kable(cma$channels, caption = "Crisis modifier matrix: channels")
+if (nrow(cma$unmatched) > 0) {
+  knitr::kable(cma$unmatched,
+               caption = "INFORM Severity drivers not in the matrix")
+}
+```
+
+### Internal validity
 
 ```{r}
 #| fig-width: 10
@@ -542,11 +531,9 @@ tar_read(risk_score) |>
 tar_read(corplot)
 ```
 
-Indicators within the vulnerability, capacity and crisis severity clusters correlate strongly with each other, so each cluster captures a coherent dimension. Vulnerability and capacity are also strongly correlated with each other, while their correlation with crisis severity is low. Severity therefore captures a distinct, acute dimension, which is what the driver-routed adjustment relies on.
+Indicators within the vulnerability, capacity and crisis severity clusters correlate strongly with each other, so each cluster measures a coherent dimension. Vulnerability and capacity are also strongly correlated with each other, while their correlation with crisis severity is low: severity captures a distinct, acute dimension, which is what the component-by-component crisis modifier relies on.
 
-The cause-specific burden indicators correlate weakly, as expected: the burden of one disease does not predict another. The hazard score is by construction a monotone transformation of the all-cause DALY rate, so their correlation of 1 carries no evidential weight.
-
-#### Dimensionality
+The cause-specific burden indicators correlate weakly, as expected, since the burden of one disease does not predict another. The hazard score is by construction a monotone transformation of the all-cause DALY rate, so their correlation of 1 carries no evidential weight.
 
 ```{r}
 tar_read(fig_pca_scree)
@@ -569,13 +556,11 @@ tar_read(fig_pca_loadings)
 tar_read(fig_pca_biplot)
 ```
 
-Where a single principal component absorbs most of the variance, the pillars describe one underlying gradient rather than three independent ones. The effective weights above show the same thing from a different angle: correlated components share their variance, and the equal nominal weighting is a stronger assumption than it appears.
+Where one principal component absorbs most of the variance, the pillars describe a single underlying gradient more than three independent ones. The effective weights show the same from another angle: correlated components share their variance, and equal nominal weights are a stronger assumption than they appear.
 
-## Discussion
+### Change since the previous run
 
-### Comparison with the previous run
-
-Each run writes a snapshot of its scores, and changes are measured against the most recent previous snapshot rather than a fixed historical index. The first run establishes the baseline.
+Each run saves a snapshot of its scores. The countries whose scores moved most since the previous snapshot are listed below, so that every change can be traced to its inputs (Principle 3).
 
 ```{r}
 tar_read(fig_run_comparison)
@@ -593,14 +578,28 @@ if (!is.null(cmp)) {
 }
 ```
 
-### Limitations
+## Limitations
 
-- **No external validation.** The analyses establish internal consistency and dimensionality, not predictive validity. Convergent comparison against other published indices is the natural next step.
-- **No uncertainty or sensitivity analysis.** Scores are point estimates. The effective weights show how much each component drives the ranking under the current design, but the effect of alternative normalisation, aggregation or weighting choices on the rankings is not quantified.
-- **Equal nominal weights.** The 1/3 weights are a convention inherited from INFORM, not an estimate. The effective weights depart from them wherever components differ in spread or are correlated, and under the current scale they are sensitive to the few countries nearest the lower bound (see [Diagnosis: scale and aggregation]).
-- **Heterogeneous input vintages.** HAQI derives from GBD 2019 and has no regular update cycle. WHO indicators use the latest year available per country, which differs systematically between well- and poorly-measured countries; the reference years (`year_uhc`, `year_doctors`) are kept so the spread can be inspected.
-- **National crisis scope.** Crisis severity is applied at national level, so a geographically limited crisis affects the whole country. Routing and bounding reduce this distortion but do not remove its cause; sub-national scoping is deferred.
+- **No external validation.** The checks establish internal consistency and dimensionality, not predictive validity. Comparison against other published indices is the natural next step.
+- **Limited uncertainty analysis.** Scores are point estimates. The alternative methods above test the scale and aggregation, but uncertainty in the inputs themselves is not propagated.
+- **Equal nominal weights.** The 1/3 weights are a convention shared with INFORM, not an estimate. The effective weights show how far the data depart from them.
+- **Heterogeneous input vintages.** HAQI derives from GBD 2019 and has no regular update cycle. The WHO indicators use the latest year available for each country, which differs systematically between well- and poorly-measured countries; the reference years (`year_uhc`, `year_doctors`) are kept so that the spread can be inspected.
+- **National crisis scope.** Crisis severity is applied at national level, so a geographically limited crisis affects the whole country. Routing and bounding limit the distortion but do not remove its cause.
 - **General-population estimates.** Expatriate and workforce populations have different age structures and exposures, and no demographic adjustment is applied.
+
+## Implementation
+
+The index is computed by an R package orchestrated with `targets`, with dependencies pinned by `renv`. This report is rendered by Quarto from the pipeline's outputs, and every function is documented in the package manual. The list of input files (`risk_input_files()`) and the scoring chain (`score_risk()`) are each defined once and shared by the pipeline and the interactive tools, so a score computed in an app is identical to the one reported here. `sources.md` lists what must be refreshed for a new data round.
+
+```{r, eval=FALSE}
+targets::tar_visnetwork(
+  targets_only = TRUE,
+  exclude = c(
+    "report", "objectToShare", "shareOutput", starts_with("."),
+    all_of(extract_fct_names(here::here("R/utils.R")))
+  )
+)
+```
 
 ## Acknowledgments {.appendix}
 

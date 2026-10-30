@@ -4,19 +4,27 @@
 \alias{create_severity_calibration_plot}
 \title{Plot the severity calibration table}
 \usage{
-create_severity_calibration_plot(calibration, n_drivers = 2)
+create_severity_calibration_plot(
+  calibration,
+  n_drivers = c(1, 2, 4, 6),
+  band = 0.2
+)
 }
 \arguments{
 \item{calibration}{A data frame from \code{severity_calibration_table()}.}
 
-\item{n_drivers}{Driver count to display.}
+\item{n_drivers}{Driver counts to display.}
+
+\item{band}{Width of one risk band, drawn as a reference line.}
 }
 \value{
 A ggplot2 object.
 }
 \description{
-Visualises how the crisis modifier behaves across baseline risks and severity
-levels under v4.1 compared with the deprecated v4.0 formula. Included in the
+Shows the size of the crisis modifier: the uplift of the risk score by
+INFORM Severity level and number of active drivers, for several structural
+baselines, against the one-band reference (0.2 on a five-band scale) that
+the coefficients in \code{\link[=severity_betas]{severity_betas()}} are calibrated to. Included in the
 report so that readers can see the size of the lever rather than take it on
 trust.
 }

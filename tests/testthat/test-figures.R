@@ -65,3 +65,11 @@ test_that("create_component_maps() draws three panels", {
   ago <- p$data[p$data$adm0_a3 == "AGO", ]
   expect_equal(ago$value, c(0.8, 0.7, 0.9))
 })
+
+test_that("the calibration figure shows uplift by drivers, without versions", {
+  p <- create_severity_calibration_plot(severity_calibration_table())
+  expect_s3_class(p, "ggplot")
+  expect_setequal(levels(p$data$drivers), c("1", "2", "4", "6"))
+  expect_equal(p$data$uplift, p$data$risk_v4_1 - p$data$baseline)
+  expect_false(grepl("v4", paste(unlist(p$labels), collapse = " ")))
+})
