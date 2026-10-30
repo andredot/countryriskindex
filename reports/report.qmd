@@ -1,6 +1,6 @@
 ---
 title: "`r Sys.getenv('PROJ_TITLE')`"
-subtitle: "4.10"
+subtitle: "4.20"
 description: "`r Sys.getenv('PROJ_DESCRIPTION')`"
 author:
   - name: Andrea Pedot

@@ -1,3 +1,46 @@
+# countryriskindex 0.3.0 (index version 4.20)
+
+Scores are not comparable with index version 4.10: the scale floor and the
+crisis modifier matrix change the published values.
+
+## Method
+
+* **Scale floor.** Every normalised component, and normalised doctor density
+  inside capacity, is mapped onto `[0.1, 1]` (`scale_floor()`), so that no
+  country enters a geometric mean at 0 and the effective weights are not set
+  by the few countries nearest the lower bound. The frozen quantile bounds are
+  unchanged.
+* **Crisis modifier matrix.** Reviewed and versioned with the code in
+  `inst/extdata/crisis_modifier_matrix.xlsx`: one TRUE/FALSE flag per driver
+  and channel, with a rationale. Vulnerability and capacity are per-driver
+  flags; environmental exposure and nutrition are new hazard channels.
+* **Floor weight.** A crisis whose drivers are not in the matrix receives 1/3
+  on every component (the weight of one driver). Countries with a matched
+  driver keep exactly the channels the matrix gives them.
+* **Driver matching.** Driver lists are trimmed after splitting and matched
+  ignoring case, spaces and punctuation, so no driver after the first in a
+  list is lost.
+
+## Diagnostics
+
+* Effective weights across countries (`summarise_global_weights()`):
+  standardised betas and variance shares of the exact decomposition.
+* Scale and aggregation checks (`diagnose_component_scales()`,
+  `diagnose_pillar_internals()`, `compare_scoring_variants()`,
+  `floor_sensitivity()`), with INFORM's headline dimensions as benchmarks.
+* Crisis modifier matrix audit (`audit_crisis_modifier_matrix()`) and crisis
+  share per country (`summarise_crisis_share()`).
+
+## Tools and report
+
+* Live scoring app (`run_scoring_app()`): upload the GBD and INFORM files only;
+  WHO indicators are downloaded (`download_who_indicators()`) and reference
+  tables read from the shared folder. Excel workbook prepared up front, with a
+  "Save to output folder" button.
+* Maps no longer depend on OpenStreetMap tiles; the report shows the three
+  components as adjacent static maps.
+* The report is organised around its design principles.
+
 # countryriskindex 0.2.0 (index version 4.10)
 
 ## Score decomposition (new)
