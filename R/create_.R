@@ -1242,51 +1242,50 @@ createimg_severity_uplift <- function(db = NULL, top_n = 30) {
 
 #' Plot the severity calibration table
 #'
-#' Visualises how the crisis modifier behaves across baseline risks and severity
-#' levels under v4.1 compared with the deprecated v4.0 formula. Included in the
+#' Shows the size of the crisis modifier: the uplift of the risk score by
+#' INFORM Severity level and number of active drivers, for several structural
+#' baselines, against the one-band reference (0.2 on a five-band scale) that
+#' the coefficients in [severity_betas()] are calibrated to. Included in the
 #' report so that readers can see the size of the lever rather than take it on
 #' trust.
 #'
 #' @param calibration A data frame from `severity_calibration_table()`.
-#' @param n_drivers Driver count to display.
+#' @param n_drivers Driver counts to display.
+#' @param band Width of one risk band, drawn as a reference line.
 #'
 #' @return A ggplot2 object.
 #' @export
-create_severity_calibration_plot <- function(calibration, n_drivers = 2) {
-  d <- calibration[calibration$n_drivers == n_drivers, , drop = FALSE]
+create_severity_calibration_plot <- function(calibration,
+                                             n_drivers = c(1, 2, 4, 6),
+                                             band = 0.2) {
+  d <- calibration[calibration$n_drivers %in% n_drivers, , drop = FALSE]
+  d$uplift <- d$risk_v4_1 - d$baseline
+  d$drivers <- factor(d$n_drivers, levels = sort(unique(d$n_drivers)))
+  d$baseline_lab <- factor(
+    paste0("Structural risk ", sprintf("%.2f", d$baseline)),
+    levels = paste0("Structural risk ", sprintf("%.2f",
+                                                sort(unique(d$baseline)))))
 
-  long <- tidyr::pivot_longer(
-    d[, c("baseline", "severity", "risk_v4_1", "risk_v4_0")],
-    cols = c("risk_v4_1", "risk_v4_0"),
-    names_to = "method", values_to = "risk"
-  )
-  long$method <- factor(long$method,
-                        levels = c("risk_v4_0", "risk_v4_1"),
-                        labels = c("v4.0 (convex pull)",
-                                   "v4.1 (driver-routed log-odds)"))
-  long$baseline_lab <- paste0("Baseline risk = ",
-                              sprintf("%.2f", long$baseline))
-
-  ggplot2::ggplot(long, ggplot2::aes(x = .data$severity, y = .data$risk,
-                                     colour = .data$method)) +
+  ggplot2::ggplot(d, ggplot2::aes(x = .data$severity, y = .data$uplift,
+                                  colour = .data$drivers)) +
+    ggplot2::geom_hline(yintercept = band, linetype = "dashed",
+                        colour = "grey40") +
     ggplot2::geom_line(linewidth = 0.9) +
     ggplot2::geom_point(size = 1.8) +
-    ggplot2::geom_hline(yintercept = 1, linetype = "dotted",
-                        colour = "grey50") +
-    ggplot2::facet_wrap(~ .data$baseline_lab) +
+    ggplot2::facet_wrap(~ .data$baseline_lab, nrow = 1) +
     ggplot2::scale_colour_manual(
-      values = c("v4.0 (convex pull)" = "firebrick",
-                 "v4.1 (driver-routed log-odds)" = "steelblue")
-    ) +
-    ggplot2::coord_cartesian(ylim = c(0, 1.02)) +
+      values = utils::tail(RColorBrewer::brewer.pal(9, "Blues"),
+                           nlevels(d$drivers) + 1)[-1]) +
+    ggplot2::coord_cartesian(ylim = c(0, max(band, d$uplift) * 1.05)) +
     ggplot2::labs(
-      title = "Effect of the crisis modifier on the risk score",
+      title = "Size of the crisis modifier",
       subtitle = paste0(
-        "At ", n_drivers, " active drivers per channel. v4.0 reaches 1.0 at ",
-        "severity 5 regardless of the structural score."
+        "Uplift of the risk score by INFORM Severity and active drivers ",
+        "per channel. Dashed line: one band (", band, ") on a five-band scale."
       ),
-      x = "INFORM Severity index", y = "Adjusted risk", colour = NULL
+      x = "INFORM Severity index", y = "Uplift", colour = "Drivers"
     ) +
     ggplot2::theme_minimal(base_size = 12) +
-    ggplot2::theme(legend.position = "top")
+    ggplot2::theme(legend.position = "top",
+                   plot.title.position = "plot")
 }
