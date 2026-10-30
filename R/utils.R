@@ -1,3 +1,6 @@
+# `%||%` is only in base R from 4.4.0.
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
 
 # Here below put your small tiny supporting functions -------------
 view_in_excel <- function(.data) {
@@ -338,26 +341,6 @@ invert_0_100 <- function(x) {
   ifelse(is.na(x), NA_real_, 100 - x)
 }
 
-#' Export data to a GeoPackage
-#'
-#' Joins input data to country geometries and writes to a GeoPackage file.
-#'
-#' @param data Data frame with country-level data.
-#' @param data_key Column name for country codes in `data`.
-#' @param cols Columns to include in the export.
-#' @param .data_path Output file path.
-#' @return Writes a GeoPackage file to disk.
-#' @export
-export_gpkg <- function(data = NULL,
-                        data_key = "ISO_A3",
-                        cols = c("overall_risk", "severity_adjusted_risk",
-                                 data_key),
-                        .data_path = "") {
-  rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") |>
-    dplyr::left_join(data[, cols], by = stats::setNames(data_key, "adm0_a3")) |>
-    sf::st_write(.data_path, append = FALSE)
-}
-
 #' Warn about variables lacking frozen reference bounds
 #'
 #' Scores for variables absent from the reference table fall back to
@@ -452,4 +435,40 @@ read_reference_quantiles <- function(file = "reference_quantiles_2025.csv") {
 
   check_reference_coverage(ref)
   ref
+}
+
+#' Make a closure carry the functions it depends on
+#'
+#' Functions loaded with `targets::tar_source()` live in the global environment,
+#' and R serialises the global environment *by reference*, not by value. A Shiny
+#' app built inside the pipeline and restored with `tar_read()` would therefore
+#' look its helpers (`create_decomposition_waterfall()`,
+#' `createmap_adjusted_risk_score()`, ...) up in the *reading* session's global
+#' environment, where they normally do not exist.
+#'
+#' This copies every function defined in the global environment into a private
+#' environment that is serialised together with `fun`, alongside the local
+#' variables `fun` closes over (the data passed to the app). When the
+#' package is loaded as a namespace (installed, or via `devtools::load_all()`)
+#' the namespace itself is restored on read, so `fun` is returned unchanged.
+#'
+#' @param fun A closure, typically a Shiny server function.
+#' @return `fun`, with an environment that no longer depends on the caller's
+#'   global environment for functions defined there.
+#' @noRd
+self_contained <- function(fun) {
+  if (!identical(topenv(environment(fun)), globalenv())) return(fun)
+
+  helpers <- new.env(parent = globalenv())
+  for (nm in ls(globalenv(), all.names = TRUE)) {
+    f <- get(nm, envir = globalenv())
+    if (is.function(f) && identical(environment(f), globalenv())) {
+      environment(f) <- helpers
+      assign(nm, f, envir = helpers)
+    }
+  }
+
+  environment(fun) <- list2env(as.list(environment(fun), all.names = TRUE),
+                               parent = helpers)
+  fun
 }

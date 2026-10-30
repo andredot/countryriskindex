@@ -36,7 +36,7 @@
 #' @param who_downloader Function fetching the WHO indicators, see
 #'   [download_who_indicators()]. Exposed for testing.
 #' @param output_dir Folder where "Save to output folder" writes the workbook;
-#'   see [default_output_dir()].
+#'   see [default_output_dir()]. `NULL` hides the button (e.g. on a server).
 #' @param max_upload_mb Maximum size of a single uploaded file, in MB.
 #' @param compute Function computing the score, see [compute_risk_score()].
 #'   Exposed for testing.
@@ -85,7 +85,7 @@ run_scoring_app <- function(baseline = NULL,
         shiny::uiOutput("status"),
         shiny::conditionalPanel(
           "output.ready",
-          workbook_ui(),
+          workbook_ui(save = !is.null(output_dir)),
           shiny::br(), shiny::br(),
           shiny::tabsetPanel(
             id = "tabs",

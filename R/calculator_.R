@@ -418,11 +418,13 @@ default_output_dir <- function() {
 
 #' Download and save controls for a results workbook
 #' @noRd
-workbook_ui <- function(label = "Download results (.xlsx)") {
+workbook_ui <- function(label = "Download results (.xlsx)", save = TRUE) {
   shiny::tagList(
     shiny::downloadButton("download", label),
-    shiny::actionButton("save_xlsx", "Save to output folder",
-                        icon = shiny::icon("floppy-disk")),
+    if (save) {
+      shiny::actionButton("save_xlsx", "Save to output folder",
+                          icon = shiny::icon("floppy-disk"))
+    },
     shiny::uiOutput("save_message")
   )
 }
@@ -457,6 +459,7 @@ register_workbook_outputs <- function(input, output, result, output_dir) {
   )
 
   saved <- shiny::reactiveVal(NULL)
+  if (is.null(output_dir)) return(invisible())
   shiny::observeEvent(input$save_xlsx, {
     wb <- result()$workbook
     msg <- if (is.null(wb) || is.na(wb$path)) {
@@ -525,7 +528,7 @@ describe_risk_inputs <- function(paths, names = NULL, origin = NULL) {
 #' @param defaults Named vector of default paths; see
 #'   [default_risk_input_paths()].
 #' @param output_dir Folder where "Save to output folder" writes the workbook;
-#'   see [default_output_dir()].
+#'   see [default_output_dir()]. `NULL` hides the button (e.g. on a server).
 #' @param max_upload_mb Maximum size of a single uploaded file, in MB.
 #' @param compute Function computing the score, see [compute_risk_score()].
 #'   Exposed for testing.
@@ -554,7 +557,7 @@ run_calculator_app <- function(defaults = default_risk_input_paths(),
         shiny::uiOutput("status"),
         shiny::conditionalPanel(
           "output.ready",
-          workbook_ui("Download risk_score.xlsx"),
+          workbook_ui("Download risk_score.xlsx", save = !is.null(output_dir)),
           shiny::h4("Top 15 countries by severity-adjusted risk"),
           shiny::tableOutput("preview"),
           shiny::h4("Inputs used"),

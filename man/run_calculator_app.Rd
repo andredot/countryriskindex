@@ -16,7 +16,7 @@ run_calculator_app(
 \code{\link[=default_risk_input_paths]{default_risk_input_paths()}}.}
 
 \item{output_dir}{Folder where "Save to output folder" writes the workbook;
-see \code{\link[=default_output_dir]{default_output_dir()}}.}
+see \code{\link[=default_output_dir]{default_output_dir()}}. \code{NULL} hides the button (e.g. on a server).}
 
 \item{max_upload_mb}{Maximum size of a single uploaded file, in MB.}
 

@@ -51,26 +51,6 @@ invert_0_100 <- function(x) {
   ifelse(is.na(x), NA_real_, 100 - x)
 }
 
-#' Export data to a GeoPackage
-#'
-#' Joins input data to country geometries and writes to a GeoPackage file.
-#'
-#' @param data Data frame with country-level data.
-#' @param data_key Column name for country codes in `data`.
-#' @param cols Columns to include in the export.
-#' @param .data_path Output file path.
-#' @return Writes a GeoPackage file to disk.
-#' @export
-export_gpkg <- function(data = NULL,
-                        data_key = "ISO_A3",
-                        cols = c("overall_risk","severity_adjusted_risk",
-                                 data_key),
-                        .data_path = "") {
-  rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") |>
-    dplyr::left_join(data[, cols], by = setNames(data_key, "adm0_a3")) |>
-    sf::st_write(.data_path, append = FALSE)
-}
-
 #' GBD round used by the pipeline
 #'
 #' The GBD year appears in two input file names. Keeping it in one place means

@@ -1289,3 +1289,23 @@ create_severity_calibration_plot <- function(calibration,
     ggplot2::theme(legend.position = "top",
                    plot.title.position = "plot")
 }
+
+#' Export data to a GeoPackage
+#'
+#' Joins input data to country geometries and writes to a GeoPackage file.
+#'
+#' @param data Data frame with country-level data.
+#' @param data_key Column name for country codes in `data`.
+#' @param cols Columns to include in the export.
+#' @param .data_path Output file path.
+#' @return Writes a GeoPackage file to disk.
+#' @export
+export_gpkg <- function(data = NULL,
+                        data_key = "ISO_A3",
+                        cols = c("overall_risk", "severity_adjusted_risk",
+                                 data_key),
+                        .data_path = "") {
+  rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") |>
+    dplyr::left_join(data[, cols], by = stats::setNames(data_key, "adm0_a3")) |>
+    sf::st_write(.data_path, append = FALSE)
+}

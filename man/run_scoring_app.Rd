@@ -30,7 +30,7 @@ the WHO downloads. Never used for the GBD and INFORM uploads.}
 \code{\link[=download_who_indicators]{download_who_indicators()}}. Exposed for testing.}
 
 \item{output_dir}{Folder where "Save to output folder" writes the workbook;
-see \code{\link[=default_output_dir]{default_output_dir()}}.}
+see \code{\link[=default_output_dir]{default_output_dir()}}. \code{NULL} hides the button (e.g. on a server).}
 
 \item{max_upload_mb}{Maximum size of a single uploaded file, in MB.}
 

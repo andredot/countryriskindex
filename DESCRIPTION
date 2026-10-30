@@ -10,7 +10,6 @@ Description: countryriskindex is an R package for computing the Country
     health vulnerability.
 License: file LICENSE
 Imports: 
-    countryriskindex (>= 0.2.0),
     dplyr,
     factoextra,
     fmsb,
@@ -67,7 +66,6 @@ Suggests:
     usethis,
     withr
 Remotes: 
-    andredot/countryriskindex,
     ricardo-bion/ggradar
 Config/roxygen2/version: 8.1.0
 Config/testthat/edition: 3

@@ -26,3 +26,7 @@ renv/
 reports/disease_clustering_files/
 
 reports/vulcomb_files/
+
+# Deployable app bundles: rebuilt by dev/06-deploy_scoring_app.R, and
+# they contain copies of the input data.
+/deploy/
