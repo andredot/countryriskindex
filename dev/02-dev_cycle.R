@@ -13,7 +13,7 @@ prj_pkgs <- c("fs", "readr", "stringr", "purrr",
 renv::install(prj_pkgs)
 purrr::walk(prj_pkgs, usethis::use_package)
 
-gh_prj_pkgs <- c("ricardo-bion/ggradar")  # e.g. CorradoLanera/autotestthat
+gh_prj_pkgs <- c("ricardo-bion/ggradar", "andredot/countryriskindex")  # e.g. CorradoLanera/autotestthat
 renv::install(gh_prj_pkgs)
 purrr::walk(gh_prj_pkgs, ~{
   package_name <- stringr::str_extract(.x, "[\\w\\.]+$")
